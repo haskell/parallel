@@ -1,0 +1,14 @@
+name:		parallel
+version:	1.0
+license:	BSD3
+license-file:	LICENSE
+maintainer:	libraries@haskell.org
+synopsis:	parallel programming library
+description:
+    This package provides a library for parallel programming.
+exposed-modules:
+	Control.Parallel
+	Control.Parallel.Strategies
+extensions:	CPP
+build-depends: base
+
