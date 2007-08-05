@@ -10,5 +10,5 @@ exposed-modules:
 	Control.Parallel
 	Control.Parallel.Strategies
 extensions:	CPP
-build-depends: base
+build-depends: base, containers, array
 
