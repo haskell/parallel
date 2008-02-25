@@ -523,9 +523,18 @@ seqListNth n strat xs
   where
     rest = drop n xs
 
--- | Parallel n-buffer function added for the revised version of the strategies
--- paper. 'parBuffer' supersedes the older @fringeList@. It has the same
--- semantics.
+-- | Applies a strategy to the nth element of list when the head is demanded.
+-- More precisely:
+--
+-- * semantics: @parBuffer n s = id :: [a] -> [a]@
+--
+-- * dynamic behaviour: evalutates the nth element of the list when the
+-- head is demanded.
+--
+-- The idea is to provide a `rolling buffer' of length n.
+--
+-- 'parBuffer' has been added for the revised version of the strategies
+-- paper and supersedes the older @fringeList@.
 parBuffer :: Int -> Strategy a -> [a] -> [a]
 parBuffer n s xs = 
   return xs (start n xs)
