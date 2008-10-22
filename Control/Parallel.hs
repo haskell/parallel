@@ -24,6 +24,8 @@ import Prelude
 
 #ifdef __GLASGOW_HASKELL__
 import qualified GHC.Conc	( par, pseq )
+
+infixr 0 `par`, `pseq`
 #endif
 
 #if defined(__GRANSIM__)
