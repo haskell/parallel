@@ -80,6 +80,8 @@ infixr 3 >|                 -- another name for seq
 infixl 6 $||, $|            -- strategic function application (seq and par)
 infixl 9 .|, .||, -|, -||   -- strategic (inverse) function composition
 
+infixl 0 `seq`
+
 -- We need 'pseq', not the Prelude 'seq' here.  See the documentation
 -- with 'pseq' in Control.Parallel.
 seq = Parallel.pseq
