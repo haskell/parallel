@@ -510,6 +510,7 @@ seqList strat []     = ()
 seqList strat (x:xs) = strat x `seq` (seqList strat xs)
 
 -- | Sequentially applies a strategy to the first n elements of a list.
+{-# SPECIALISE seqListN :: Int -> Strategy b -> Strategy [b] #-}
 seqListN :: (Integral a) => a -> Strategy b -> Strategy [b]
 seqListN n strat []     = ()
 seqListN 0 strat xs     = ()
