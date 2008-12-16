@@ -1,5 +1,5 @@
 name:		parallel
-version:	1.1.0.0
+version:	1.1.0.1
 license:	BSD3
 license-file:	LICENSE
 maintainer:	libraries@haskell.org
@@ -7,9 +7,17 @@ synopsis:	parallel programming library
 description:
     This package provides a library for parallel programming.
 build-type:     Simple
-exposed-modules:
-	Control.Parallel
-	Control.Parallel.Strategies
-extensions:	CPP
-build-depends: base >= 3, containers, array
+cabal-version:  >=1.2
 
+library {
+  exposed-modules:
+        Control.Parallel
+        Control.Parallel.Strategies
+  extensions:	CPP
+  build-depends: base >= 3, containers, array
+
+  if impl(ghc >= 6.11) {
+    -- To improve parallel performance:
+    ghc-options: -feager-blackholing
+  }
+}
