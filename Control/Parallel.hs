@@ -5,8 +5,8 @@
 -- License     :  BSD-style (see the file libraries/base/LICENSE)
 -- 
 -- Maintainer  :  libraries@haskell.org
--- Stability   :  experimental
--- Portability :  non-portable
+-- Stability   :  stable
+-- Portability :  portable
 --
 -- Parallel Constructs
 --
@@ -64,7 +64,7 @@ parAtForNow (I# w) (I# g) (I# s) (I# p) v x y = case (parAtForNow# x v w g s p y
 -- argument in parallel with the second.  Returns the value of the
 -- second argument.
 -- 
--- @a `par` b@ is exactly equivalent semantically to @b@.
+-- @a ``par`` b@ is exactly equivalent semantically to @b@.
 --
 -- @par@ is generally used when the value of @a@ is likely to be
 -- required later, but not immediately.  Also it is a good idea to
@@ -86,7 +86,7 @@ par a b = b
 
 -- | Semantically identical to 'seq', but with a subtle operational
 -- difference: 'seq' is strict in both its arguments, so the compiler
--- may, for example, rearrange @a `seq` b@ into @b `seq` a `seq` b@.
+-- may, for example, rearrange @a ``seq`` b@ into @b ``seq`` a ``seq`` b@.
 -- This is normally no problem when using 'seq' to express strictness,
 -- but it can be a problem when annotating code for parallelism,
 -- because we need more control over the order of evaluation; we may

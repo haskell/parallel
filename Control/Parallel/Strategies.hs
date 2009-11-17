@@ -1,192 +1,321 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Control.Parallel.Strategies
--- Copyright   :  (c) The University of Glasgow 2001
+-- Copyright   :  (c) The University of Glasgow 2001-2009
 -- License     :  BSD-style (see the file libraries/base/LICENSE)
 -- 
 -- Maintainer  :  libraries@haskell.org
 -- Stability   :  experimental
--- Portability :  non-portable
+-- Portability :  portable
 --
--- Parallel strategy combinators. See
--- <http://www.macs.hw.ac.uk/~dsg/gph/papers/html/Strategies/strategies.html>
--- for more information.
+-- Parallel Evaluation Strategies, or Strategies for short, specify a
+-- way to evaluate a structure with components in sequence or in
+-- parallel.
 --
--- Original authors:
+-- Strategies are for expressing /deterministic parallelism/:
+-- the result of the program is unaffected by evaluating in parallel.
+-- For non-deterministic parallel programming, see
+-- "Control.Concurrent".
+-- 
+-- Strategies let you separate the description of parallelism from the
+-- logic of your program, enabling modular parallelism.
+--
+-- Version 1.x
+--
+--   The original Strategies design is described in
+--      <http://www.macs.hw.ac.uk/~dsg/gph/papers/html/Strategies/strategies.html>
+--   and the code was written by
 --	Phil Trinder, Hans-Wolfgang Loidl, Kevin Hammond et al. 
 --
+-- Version 2.x
+--
+-- Later, during work on the shared-memory implementation of
+-- parallelism in GHC, we discovered that the original formulation of
+-- Strategies had some problems, in particular it lead to space leaks
+-- and difficulties expressing speculative parallelism.  Details are in
+-- the paper \"Runtime Support for Multicore Haskell\" <http://www.macs.hw.ac.uk/~dsg/gph/papers/html/Strategies/strategies.html>.
+--
+-- The "Control.Parallel.Strategies" module has been rewritten in
+-- version 2.
+--
+-- The main change is to the 'Strategy a' type synonym, which was
+-- previously @a -> Done@ and is now @a -> a@.  This change helps
+-- to fix the space leak described in \"Runtime Support for
+-- Multicore Haskell\".  The problem is that the runtime will
+-- currently retain the memory referenced by all sparks, until
+-- they are evaluated.  Hence, we must arrange to evaluate all the
+-- sparks eventually, just in case they aren't evaluated in
+-- parallel, so that they don't cause a space leak.  This is why
+-- we must return a \"new\" value after applying a 'Strategy', so
+-- that the application can evaluate each spark created by the
+-- 'Strategy'.
+-- 
+-- The simple rule is this: you /must/ use the result of applying
+-- a 'Strategy' if the strategy creates parallel sparks, and you
+-- should probably discard the the original value.  If you don't
+-- do this, currently it may result in a space leak.  In the
+-- future (GHC 6.14), it will probably result in lost parallelism
+-- instead, as we plan to change GHC so that unreferenced sparks
+-- are discarded rather than retained (we can't make this change
+-- until most code is switched over to this new version of
+-- Strategies, because code using the old verison of Strategies
+-- would be broken by the change in policy).
+--
+-- The other changes in version 2.x are:
+--
+--   * Strategies can now be defined using a convenient Applicative
+--     type Eval.  e.g. parList s = unEval $ traverse (Par . s)
+--
+--   * 'parList' has been generalised to 'parTraverse', which works on
+--     any 'Traversable' type.
+--
+--   * 'parList' and 'parBuffer' have versions specialised to 'rwhnf',
+--     and there are transformation rules that automatically translate
+--     e.g. @parList rwnhf@ into a call to the optimised version.
+--
+--   * NFData has been moved into a package of its own, @deepseq@,
+--     and renamed to 'DeepSeq'.  The 'rnf' function is still exported
+--     by 'Control.Parallel.Strategies'.
+
 -----------------------------------------------------------------------------
+
 module Control.Parallel.Strategies (
-   -- *	Strategy Type, Application and Semantics
-   Done, Strategy,
-   (>|), (>||),
-   using, demanding, sparking,
-   -- *	Basic Strategies				     
-   r0, rwhnf, NFData(..),
-   -- * Strategic Function Application
+    -- * Strategy type and basic operations
+    Strategy,
+    using,
+    withStrategy,
+    rwhnf, rnf,
+    -- * Tuple strategies
+    seqPair, parPair,
+    seqTriple, parTriple,
+    -- * General traversals
+    seqTraverse,
+    parTraverse,
+    -- * List strategies
+    parList, seqList,
+    parListN, parListChunk,
+    parMap,
+    parBuffer,
+    -- * Simple list strategies
+    parListWHNF,
+    parBufferWHNF,
+    -- * Strategy composition operators
    ($|), ($||),
    (.|), (.||),
    (-|), (-||),
-   -- * Tuples
-   seqPair, parPair,
-   seqTriple, parTriple,
-   -- * Lists: Parallel Strategies
-   parList, parListN, parListNth, parListChunk, 
-   parMap, parFlatMap, parZipWith,
-   -- * Lists: Sequential Strategies
-   seqList, seqListN, seqListNth, parBuffer,
-   -- *	Arrays
-   seqArr, parArr,
-   -- * Deprecated types and functions
-   sPar, sSeq,
-   Assoc(..),
-   fstPairFstList, force, sforce
+    -- * Building strategies
+    Eval(..), unEval,
+
+    -- * Deprecated functionality
+    Done, demanding, sparking, (>|), (>||), r0, 
   ) where
 
--- based on hslibs/concurrent/Strategies.lhs; see it for more detailed
--- code comments. 
+import Data.Traversable
+import Control.Applicative
+import Control.Parallel
+import Control.DeepSeq
 
-import Control.Parallel as Parallel (par, pseq)
-import Data.Array
-import Data.Complex
-import Data.Int
-import qualified Data.IntMap (IntMap, toList)
-import qualified Data.IntSet (IntSet, toList)
-import qualified Data.Map (Map, toList)
-import qualified Data.Set (Set, toList)
-import qualified Data.Tree (Tree(..))
-import Data.Word
+-- -----------------------------------------------------------------------------
+-- Eval
 
-import Prelude hiding (seq)
-import qualified Prelude (seq)
-
--- not a terribly portable way of getting at Ratio rep.
-#ifdef __GLASGOW_HASKELL__
-import GHC.Real	(Ratio(..))	-- The basic defns for Ratio
-#endif
-
-#ifdef __HUGS__
-import Hugs.Prelude(Ratio(..) )
-#endif
-
-#ifdef __NHC__
-import Ratio (Ratio(..) )
-#endif
-
-infixl 0 `using`,`demanding`,`sparking`              -- weakest precedence!
-
-infixr 2 >||                -- another name for par
-infixr 3 >|                 -- another name for seq
-infixl 6 $||, $|            -- strategic function application (seq and par)
-infixl 9 .|, .||, -|, -||   -- strategic (inverse) function composition
-
-infixl 0 `seq`
-
--- We need 'pseq', not the Prelude 'seq' here.  See the documentation
--- with 'pseq' in Control.Parallel.
-seq = Parallel.pseq
-
-------------------------------------------------------------------------------
--- *			Strategy Type, Application and Semantics	      
-------------------------------------------------------------------------------
-
-{-
-The basic combinators for strategies are 'par' and 'seq' but with types that 
-indicate that they only combine the results of a strategy application. 
-
-NB: This version can be used with Haskell 1.4 (GHC 2.05 and beyond), *but*
-    you won't get strategy checking on seq (only on par)!
-
-The operators >| and >|| are alternative names for `seq` and `par`.
-With the introduction of a Prelude function `seq` separating the Prelude 
-function from the Strategy function becomes a pain. The notation also matches
-the notation for strategic function application.
--}
-
-type Done = ()
-
--- | A strategy takes a value and returns a 'Done' value to indicate that
---   the specifed evaluation has been performed.
-type Strategy a = a -> Done
-
-
--- | Evaluates the first argument before the second.
-(>|) :: Done -> Done -> Done 
-{-# INLINE (>|) #-}
-(>|) = Prelude.seq
-
--- | Evaluates the first argument in parallel with the second.
-(>||) :: Done -> Done -> Done 
-{-# INLINE (>||) #-}
-(>||) = Parallel.par
-
-
--- | Takes a value and a strategy, and applies the strategy to the
--- value before returning the value. Used to express data-oriented 
--- parallelism. @x \`using\` s@ is a projection on @x@, i.e. both:
+-- | `Eval` is an Applicative Functor that makes it easier to define
+-- parallel strategies that involve traversing structures.
 --
--- [a retraction] @x \`using\` s@ &#x2291; @x@
+-- a 'Seq' value will be evaluated strictly in sequence in its context,
+-- whereas a 'Par' value wraps an expression that may be evaluated in
+-- parallel.  The Applicative instance allows sequential composition,
+-- making it possible to describe an evaluateion strategy by composing
+-- 'Par' and 'Seq' with '<*>'.
 --
--- [idempotent] @(x \`using\` s) \`using\` s@ = @x \`using\` s@
+-- For example,
+--
+-- > parList :: Strategy a -> Strategy [a]
+-- > parList strat = unEval . traverse (Par . strat)
+--
+-- > seqPair :: Strategy a -> Strategy b -> Strategy (a,b)
+-- > seqPair f g (a,b) = unEval $ (,) <$> Seq (f a) <*> Seq (g b)
+--
+data Eval a = Seq a | Par a | Lazy a
+
+unEval :: Eval a -> a
+unEval (Seq  a) = a
+unEval (Par  a) = a
+unEval (Lazy a) = a
+
+instance Functor Eval where
+  fmap f (Par   a) = Seq   (a `par`  f a) -- only Par once: context becomes Seq
+  fmap f (Seq   a) = Seq   (a `pseq` f a)
+  fmap f (Lazy  a) = Lazy  (f a)
+
+instance Applicative Eval where
+  pure a = Lazy a
+  Par f  <*> x = f `par`  fmap f x
+  Seq f  <*> x = f `pseq` fmap f x
+  Lazy f <*> x = fmap f x
+
+-- -----------------------------------------------------------------------------
+-- Strategies
+
+-- | A 'Strategy' is a function that embodies a parallel evaluation strategy.
+-- The function traverses (parts of) its argument, evaluating subexpressions
+-- in parallel or in sequence.
+-- 
+-- A 'Strategy' may do an arbitrary amount of evaluation of its
+-- argument, but should not return a value different from the one it
+-- was passed.
+--
+-- Parallel computations may be discarded by the runtime system if the
+-- program no longer requires their result, which is why a 'Strategy'
+-- function returns a new value equivalent to the old value.  The
+-- intention is that the program applies the 'Strategy' to a
+-- structure, and then uses the returned value, discarding the old
+-- value.  This idiom is expressed by the 'using' function.
+-- 
+type Strategy a = a -> a
+
+-- | evaluate a value using the given 'Strategy'.
+--
+-- > using x s = s x
 --
 using :: a -> Strategy a -> a
-using x s = s x `seq` x
+using x s = s x
 
+-- | evaluate a value using the given 'Strategy'.  This is simply
+-- 'using' with the arguments reversed, and is equal to '($)'.
+-- 
+withStrategy :: Strategy a -> a -> a
+withStrategy = ($)
 
--- | Evaluates the second argument before the first.
--- Used to express control-oriented parallelism. The second
--- argument is usually a strategy application.
-demanding :: a -> Done -> a
-demanding = flip seq
+-- | A 'Strategy' that simply evaluates its argument to Weak Head Normal
+-- Form (i.e. evaluates it as far as the topmost constructor).
+rwhnf :: Strategy a
+rwhnf a = a
 
-
--- | Evaluates the second argument in parallel with the first.
--- Used to express control-oriented
--- parallelism. The second argument is usually a strategy application.
-sparking :: a -> Done -> a
-sparking  = flip Parallel.par
--- Sparking should only be used
--- with a singleton sequence as it is not necessarily executed.
-
--- | A strategy corresponding to 'par': 
--- @x \`par\` e@ = @e \`using\` sPar x@.
+-- | A 'Strategy' that fully evaluates its argument
+-- 
+-- > rnf a = deepseq a `pseq` a
 --
--- 'sPar' has been superceded by 'sparking'.
--- Replace @e \`using\` sPar x@ with @e \`sparking\` rwhnf x@.
-{-# DEPRECATED sPar "Use sparking instead." #-}
-sPar :: a -> Strategy b
-sPar x y = x `par` ()
+rnf :: DeepSeq a => Strategy a
+rnf a = deepseq a `pseq` a
 
--- | A strategy corresponding to 'seq': 
--- @x \`seq\` e@ = @e \`using\` sSeq x@.
+-- -----------------------------------------------------------------------------
+-- Tuples
+
+seqPair :: Strategy a -> Strategy b -> Strategy (a,b)
+seqPair f g (a,b) = unEval $
+  (,) <$> Seq (f a) <*> Seq (g b)
+
+parPair :: Strategy a -> Strategy b -> Strategy (a,b)
+parPair f g (a,b) = unEval $
+  (,) <$> Par (f a) <*> Par (g b)
+
+seqTriple :: Strategy a -> Strategy b -> Strategy c -> Strategy (a,b,c)
+seqTriple f g h (a,b,c) = unEval $
+  (,,) <$> Seq (f a) <*> Seq (g b) <*> Seq (h c)
+
+parTriple :: Strategy a -> Strategy b -> Strategy c -> Strategy (a,b,c)
+parTriple f g h (a,b,c) = unEval $
+  (,,) <$> Par (f a) <*> Par (g b) <*> Par (h c)
+
+-- -----------------------------------------------------------------------------
+-- General sequential/parallel traversals
+
+-- | A strategy that traverses a container data type with an instance
+-- of 'Traversable', and sparks each of the elements using the supplied
+-- strategy.
+parTraverse :: Traversable t => Strategy a -> Strategy (t a)
+parTraverse strat = unEval . traverse (Par . strat)
+
+-- | A strategy that traverses a container data type with an instance
+-- of 'Traversable', and evaluates each of the elements in left-to-right
+-- sequence using the supplied strategy.
+seqTraverse :: Traversable t => Strategy a -> Strategy (t a)
+seqTraverse strat = unEval . traverse (Seq . strat)
+
+{-# SPECIALISE parTraverse :: Strategy a -> Strategy [a] #-}
+{-# SPECIALISE seqTraverse :: Strategy a -> Strategy [a] #-}
+
+-- -----------------------------------------------------------------------------
+-- Lists
+
+-- | Spark each of the elements of a list using the given strategy.
+-- Equivalent to 'parTraverse' at the list type.
+parList :: Strategy a -> Strategy [a]
+parList = parTraverse
+
+-- | Evaluate each of the elements of a list sequentially from left to right
+-- using the given strategy.  Equivalent to 'seqTraverse' at the list type.
+seqList :: Strategy a -> Strategy [a]
+seqList = seqTraverse
+
+parListN :: Int -> Strategy a -> Strategy [a]
+parListN n strat xs = parList strat as ++ bs where (as,bs) = splitAt n xs
+
+parListChunk :: Int -> Strategy a -> Strategy [a]
+parListChunk n strat xs = concat (parList (seqList strat) (chunk n xs))
+
+chunk :: Int -> [a] -> [[a]]
+chunk _ [] = []
+chunk n xs = as : chunk n bs where (as,bs) = splitAt n xs
+
+parMap :: Strategy b -> (a -> b) -> [a] -> [b]
+parMap strat f = parList strat . map f
+
+-- -----------------------------------------------------------------------------
+-- parBuffer
+
+-- | Applies a strategy to the nth element of list when the head is demanded.
+-- More precisely:
 --
--- 'sSeq' has been superceded by 'demanding'. 
--- Replace @e \`using\` sSeq x@ with @e \`demanding\` rwhnf x@.
-{-# DEPRECATED sSeq "Use demanding instead." #-}
-sSeq :: a -> Strategy b
-sSeq x y = x `seq` ()
+-- * semantics: @parBuffer n s = id :: [a] -> [a]@
+--
+-- * dynamic behaviour: evalutates the nth element of the list when the
+-- head is demanded.
+--
+-- The idea is to provide a `rolling buffer' of length n.  It is a
+-- better than 'parList' for a lazy stream, because 'parList' will
+-- evaluate the entire list, whereas 'parBuffer' will only evaluate a
+-- fixed number of elements ahead.
 
------------------------------------------------------------------------------
--- *			Basic Strategies				     
------------------------------------------------------------------------------
+parBuffer :: Int -> Strategy a -> [a] -> [a]
+parBuffer n strat xs = parBufferWHNF n (map strat xs)
 
--- | Performs /no/ evaluation of its argument.
-r0 :: Strategy a 
-r0 x = ()
+-- -----------------------------------------------------------------------------
+-- Simple strategies
 
--- | Reduces its argument to weak head normal form.
-rwhnf :: Strategy a 
-rwhnf x = x `seq` ()  
+-- These are non-compositional strategies that might be more efficient
+-- than their more general counterparts.  We use RULES to do the
+-- specialisation.
 
-class NFData a where
-  -- | Reduces its argument to (head) normal form.
-  rnf :: Strategy a
-  -- Default method. Useful for base types. A specific method is necessay for
-  -- constructed types
-  rnf = rwhnf
+{-# RULES 
+"parList/rwhnf" parList rwhnf = parListWHNF
+"parList/id"    parList id    = parListWHNF
+"parBuffer/rwhnf" forall n . parBuffer n rwhnf = parBufferWHNF n
+"parBuffer/id"    forall n . parBuffer n id    = parBufferWHNF n
+ #-}
 
-class (NFData a, Integral a) => NFDataIntegral a
-class (NFData a, Ord a) => NFDataOrd a
+-- | version of 'parList' specialised to 'rwhnf'.  This version is
+-- much simpler, and may be faster than 'parList rwhnf'.  You should
+-- never need to use this directly, since 'parList rwhnf' is
+-- automatically optimised to 'parListWHNF'.  It is here for
+-- experimentation purposes only.
+parListWHNF :: Strategy [a]
+parListWHNF []     = []
+parListWHNF (x:xs) = x `par` parListWHNF xs
+
+-- | version of 'parBuffer' specialised to 'rwhnf'.  You should
+-- never need to use this directly, since 'parBuffer rwhnf' is
+-- automatically optimised to 'parBufferWHNF'.  It is here for
+-- experimentation purposes only.
+parBufferWHNF :: Int -> Strategy [a]
+parBufferWHNF n0 xs0 = ret xs0 (start n0 xs0)
+  where
+    ret (x:xs) (y:ys) = y `par` (x : return xs ys)
+    ret xs     _      = xs
+
+    start _ []     = []
+    start 0 ys     = ys
+    start n (y:ys) = y `par` start (n-1) ys
 
 ------------------------------------------------------------------------------
 -- *                     Strategic Function Application
@@ -203,34 +332,34 @@ only as second arguments to @$|@ and @$||@.
 -- | Sequential function application. The argument is evaluated using
 --   the given strategy before it is given to the function.
 ($|) :: (a -> b) -> Strategy a -> a -> b
-f $| s  = \ x -> f x `demanding` s x
+f $| s  = \ x -> let z = x `using` s in z `pseq` f z
 
 -- | Parallel function application. The argument is evaluated using
 -- the given strategy, in parallel with the function application.
 ($||) :: (a -> b) -> Strategy a -> a -> b
-f $|| s = \ x -> f x `sparking` s x
+f $|| s = \ x -> let z = x `using` s in z `par` f z
 
 -- | Sequential function composition. The result of
 -- the second function is evaluated using the given strategy, 
 -- and then given to the first function.
 (.|) :: (b -> c) -> Strategy b -> (a -> b) -> (a -> c)
-(.|) f s g = \ x -> let  gx = g x 
-                    in   f gx `demanding` s gx
+(.|) f s g = \ x -> let z = s (g x) in 
+                    z `pseq` f z
 
 -- | Parallel function composition. The result of the second
 -- function is evaluated using the given strategy,
 -- in parallel with the application of the first function.
 (.||) :: (b -> c) -> Strategy b -> (a -> b) -> (a -> c)
-(.||) f s g = \ x -> let  gx = g x 
-                     in   f gx `sparking` s gx
+(.||) f s g = \ x -> let z = s (g x) in 
+                    z `par` f z
 
 -- | Sequential inverse function composition, 
 -- for those who read their programs from left to right.
 -- The result of the first function is evaluated using the 
 -- given strategy, and then given to the second function.
 (-|) :: (a -> b) -> Strategy b -> (b -> c) -> (a -> c)
-(-|) f s g = \ x -> let  fx = f x 
-                    in   g fx `demanding` s fx
+(-|) f s g = \ x -> let z = s (f x) in 
+                    z `pseq` g z
 
 -- | Parallel inverse function composition,
 -- for those who read their programs from left to right.
@@ -238,368 +367,31 @@ f $|| s = \ x -> f x `sparking` s x
 -- given strategy, in parallel with the application of the 
 -- second function.
 (-||) :: (a -> b) -> Strategy b -> (b -> c) -> (a -> c)
-(-||) f s g = \ x -> let  fx = f x 
-                     in   g fx `sparking` s fx 
+(-||) f s g = \ x -> let z = s (f x) in 
+                    z `par` g z
 
-------------------------------------------------------------------------------
---			Marking a Strategy
-------------------------------------------------------------------------------
+-- -----------------------------------------------------------------------------
+-- Old/deprecated stuff
 
-{-
-Marking a strategy.
+{-# DEPRECATED Done "The Strategies type is now a -> a, not a -> Done" #-}
+type Done = ()
 
-Actually, @markStrat@  sticks a label @n@  into the sparkname  field of the
-thread executing strategy @s@. Together with a runtime-system that supports
-propagation of sparknames to the children this means that this strategy and
-all its children have  the sparkname @n@ (if the  static sparkname field in
-the @parGlobal@ annotation contains the value 1). Note, that the @SN@ field
-of starting the marked strategy itself contains the sparkname of the parent
-thread. The END event contains @n@ as sparkname.
--}
+{-# DEPRECATED demanding "Use pseq or $| instead" #-}
+demanding :: a -> Done -> a
+demanding = flip pseq
 
-#if 0
-markStrat :: Int -> Strategy a -> Strategy a 
-markStrat n s x = unsafePerformPrimIO (
-     _casm_ ``%r = set_sparkname(CurrentTSO, %0);'' n `thenPrimIO` \ z ->
-     returnPrimIO (s x))
-#endif
+{-# DEPRECATED sparking "Use par or $|| instead" #-}
+sparking :: a -> Done -> a
+sparking  = flip par
 
------------------------------------------------------------------------------
---			Strategy Instances and Functions		     
------------------------------------------------------------------------------
+{-# DEPRECATED (>|) "Use pseq or $| instead" #-}
+(>|) :: Done -> Done -> Done 
+(>|) = Prelude.seq
 
------------------------------------------------------------------------------
--- *	                Tuples
------------------------------------------------------------------------------
+{-# DEPRECATED (>||) "Use par or $|| instead" #-}
+(>||) :: Done -> Done -> Done 
+(>||) = par
 
-{-
-We currently support up to 9-tuples. If you need longer tuples you have to 
-add the instance explicitly to your program.
--}
-
-instance (NFData a, NFData b) => NFData (a,b) where
-  rnf (x,y) = rnf x `seq` rnf y
-
-instance (NFData a, NFData b, NFData c) => NFData (a,b,c) where
-  rnf (x,y,z) = rnf x `seq` rnf y `seq` rnf z 
-
-instance (NFData a, NFData b, NFData c, NFData d) => NFData (a,b,c,d) where
-  rnf (x1,x2,x3,x4) = rnf x1 `seq` 
-		        rnf x2 `seq` 
-		        rnf x3 `seq` 
-		        rnf x4 
-
-instance (NFData a1, NFData a2, NFData a3, NFData a4, NFData a5) => 
-         NFData (a1, a2, a3, a4, a5) where
-  rnf (x1, x2, x3, x4, x5) =
-                  rnf x1 `seq`
-                  rnf x2 `seq`
-                  rnf x3 `seq`
-                  rnf x4 `seq`
-                  rnf x5
-
-instance (NFData a1, NFData a2, NFData a3, NFData a4, NFData a5, NFData a6) => 
-         NFData (a1, a2, a3, a4, a5, a6) where
-  rnf (x1, x2, x3, x4, x5, x6) =
-                  rnf x1 `seq`
-                  rnf x2 `seq`
-                  rnf x3 `seq`
-                  rnf x4 `seq`
-                  rnf x5 `seq`
-                  rnf x6
-
-instance (NFData a1, NFData a2, NFData a3, NFData a4, NFData a5, NFData a6, NFData a7) => 
-         NFData (a1, a2, a3, a4, a5, a6, a7) where
-  rnf (x1, x2, x3, x4, x5, x6, x7) =
-                  rnf x1 `seq`
-                  rnf x2 `seq`
-                  rnf x3 `seq`
-                  rnf x4 `seq`
-                  rnf x5 `seq`
-                  rnf x6 `seq`
-                  rnf x7
-
-instance (NFData a1, NFData a2, NFData a3, NFData a4, NFData a5, NFData a6, NFData a7, NFData a8) => 
-         NFData (a1, a2, a3, a4, a5, a6, a7, a8) where
-  rnf (x1, x2, x3, x4, x5, x6, x7, x8) =
-                  rnf x1 `seq`
-                  rnf x2 `seq`
-                  rnf x3 `seq`
-                  rnf x4 `seq`
-                  rnf x5 `seq`
-                  rnf x6 `seq`
-                  rnf x7 `seq`
-                  rnf x8
-
-instance (NFData a1, NFData a2, NFData a3, NFData a4, NFData a5, NFData a6, NFData a7, NFData a8, NFData a9) => 
-         NFData (a1, a2, a3, a4, a5, a6, a7, a8, a9) where
-  rnf (x1, x2, x3, x4, x5, x6, x7, x8, x9) =
-                  rnf x1 `seq`
-                  rnf x2 `seq`
-                  rnf x3 `seq`
-                  rnf x4 `seq`
-                  rnf x5 `seq`
-                  rnf x6 `seq`
-                  rnf x7 `seq`
-                  rnf x8 `seq`
-                  rnf x9
-
--- | Apply two strategies to the elements of a pair sequentially
---   from left to right.
-seqPair :: Strategy a -> Strategy b -> Strategy (a,b)
-seqPair strata stratb (x,y) = strata x `seq` stratb y 
-
--- | Apply two strategies to the elements of a pair in parallel.
-parPair :: Strategy a -> Strategy b -> Strategy (a,b)
-parPair strata stratb (x,y) = strata x `par` stratb y `par` ()
--- The reason for the last 'par' is so that the strategy terminates 
--- quickly. This is important if the strategy is used as the 1st 
--- argument of a seq
-
--- | Apply three strategies to the elements of a triple in sequentially
---   from left to right.
-seqTriple :: Strategy a -> Strategy b -> Strategy c -> Strategy (a,b,c)
-seqTriple strata stratb stratc p@(x,y,z) = 
-  strata x `seq` 
-  stratb y `seq`
-  stratc z 
-
--- | Apply three strategies to the elements of a triple in parallel.
-parTriple :: Strategy a -> Strategy b -> Strategy c -> Strategy (a,b,c)
-parTriple strata stratb stratc (x,y,z) = 
-  strata x `par` 
-  stratb y `par` 
-  stratc z `par`
-  ()
-
------------------------------------------------------------------------------
--- 			Atomic types
------------------------------------------------------------------------------
-
-{-
-Weak head normal form and normal form are identical for integers, so the 
-default rnf is sufficient. 
--}
-instance NFData Int 
-instance NFData Integer
-instance NFData Float
-instance NFData Double
-
-instance NFData Int8
-instance NFData Int16
-instance NFData Int32
-instance NFData Int64
-
-instance NFData Word8
-instance NFData Word16
-instance NFData Word32
-instance NFData Word64
-
-instance NFDataIntegral Int
-instance NFDataOrd Int
-
---Rational and complex numbers.
-
-instance (Integral a, NFData a) => NFData (Ratio a) where
-  rnf (x:%y) = rnf x `seq` 
-               rnf y `seq`
-               ()
-
-instance (RealFloat a, NFData a) => NFData (Complex a) where
-  rnf (x:+y) = rnf x `seq` 
-	         rnf y `seq`
-               ()
-
-instance NFData Char
-instance NFData Bool
-instance NFData ()
-
------------------------------------------------------------------------------
--- 			Various library types						    
------------------------------------------------------------------------------
-
-instance NFData a => NFData (Maybe a) where
-    rnf Nothing  = ()
-    rnf (Just x) = rnf x
-
-instance (NFData a, NFData b) => NFData (Either a b) where
-    rnf (Left x)  = rnf x
-    rnf (Right y) = rnf y
-
-instance (NFData k, NFData a) => NFData (Data.Map.Map k a) where
-    rnf = rnf . Data.Map.toList
-
-instance NFData a => NFData (Data.Set.Set a) where
-    rnf = rnf . Data.Set.toList
-
-instance NFData a => NFData (Data.Tree.Tree a) where
-    rnf (Data.Tree.Node r f) = rnf r `seq` rnf f
-
-instance NFData a => NFData (Data.IntMap.IntMap a) where
-    rnf = rnf . Data.IntMap.toList
-
-instance NFData Data.IntSet.IntSet where
-    rnf = rnf . Data.IntSet.toList
-
------------------------------------------------------------------------------
--- 			Lists						    
------------------------------------------------------------------------------
-
-instance NFData a => NFData [a] where
-  rnf [] = ()
-  rnf (x:xs) = rnf x `seq` rnf xs
-
-----------------------------------------------------------------------------
--- *                   Lists: Parallel Strategies
-----------------------------------------------------------------------------
-
--- | Applies a strategy to every element of a list in parallel.
-parList :: Strategy a -> Strategy [a]
-parList strat []     = ()
-parList strat (x:xs) = strat x `par` (parList strat xs)
-
--- | Applies a strategy to the first @n@ elements of a list in parallel.
-parListN :: (Integral b) => b -> Strategy a -> Strategy [a]
-parListN n strat []     = ()
-parListN 0 strat xs     = ()
-parListN n strat (x:xs) = strat x `par` (parListN (n-1) strat xs)
-
--- | Evaluates @n@ elements of the spine of the argument list and applies
--- the given strategy to the @n@th element (if there is one) in parallel with
--- the result. E.g. @parListNth 2 [e1, e2, e3]@ evaluates @e3@.
-parListNth :: Int -> Strategy a -> Strategy [a]
-parListNth n strat xs 
-  | null rest = ()
-  | otherwise = strat (head rest) `par` ()
-  where
-    rest = drop n xs
-
--- | Splits a list into chunks (sub-sequences) of length @n@,
--- and applies a strategy sequentially to the elements in each
--- chunk. The chunks are evaluated in parallel.
--- This is useful for increasing the grain size.
-parListChunk :: Int -> Strategy a -> Strategy [a]
-parListChunk n strat [] = ()
-parListChunk n strat xs = seqListN n strat xs `par` 
-			    parListChunk n strat (drop n xs)
-
--- | Applies a function to each element of a list and 
--- and evaluates the result list in parallel,
--- using the given strategy for each element.
-parMap :: Strategy b -> (a -> b) -> [a] -> [b]
-parMap strat f xs = map f xs `using` parList strat
-
--- | Uses 'parMap' to apply a list-valued function to each
--- element of a list in parallel, and concatenates the results.
-parFlatMap :: Strategy [b] -> (a -> [b]) -> [a] -> [b]
-parFlatMap strat f xs = concat (parMap strat f xs)
-
--- | Zips together two lists using a function,
--- and evaluates the result list in parallel.
-parZipWith :: Strategy c -> (a -> b -> c) -> [a] -> [b] -> [c]
-parZipWith strat z as bs = 
-  zipWith z as bs `using` parList strat
-
-----------------------------------------------------------------------------
--- *                     Lists: Sequential Strategies
-----------------------------------------------------------------------------
-
--- | Sequentially applies a strategy to each element of a list.
-seqList :: Strategy a -> Strategy [a]
-seqList strat []     = ()
-seqList strat (x:xs) = strat x `seq` (seqList strat xs)
-
--- | Sequentially applies a strategy to the first n elements of a list.
-{-# SPECIALISE seqListN :: Int -> Strategy b -> Strategy [b] #-}
-seqListN :: (Integral a) => a -> Strategy b -> Strategy [b]
-seqListN n strat []     = ()
-seqListN 0 strat xs     = ()
-seqListN n strat (x:xs) = strat x `seq` (seqListN (n-1) strat xs)
-
--- | Applies a strategy to the @n@th element of a list
---  (if there is one) before returning the result. 
---  E.g. @seqListNth 2 [e1, e2, e3]@ evaluates @e3@.
-seqListNth :: Int -> Strategy b -> Strategy [b]
-seqListNth n strat xs 
-  | null rest = ()
-  | otherwise = strat (head rest) 
-  where
-    rest = drop n xs
-
--- | Applies a strategy to the nth element of list when the head is demanded.
--- More precisely:
---
--- * semantics: @parBuffer n s = id :: [a] -> [a]@
---
--- * dynamic behaviour: evalutates the nth element of the list when the
--- head is demanded.
---
--- The idea is to provide a `rolling buffer' of length n.
---
--- 'parBuffer' has been added for the revised version of the strategies
--- paper and supersedes the older @fringeList@.
-parBuffer :: Int -> Strategy a -> [a] -> [a]
-parBuffer n s xs = 
-  return xs (start n xs)
-  where
-    return (x:xs) (y:ys) = (x:return xs ys) `sparking` s y
-    return xs     []     = xs
-
-    start n []     = []
-    start 0 ys     = ys
-    start n (y:ys) = start (n-1) ys `sparking` s y
-
-{-
- 'fringeList' implements a `rolling buffer' of length n, i.e.applies a
- strategy to the nth element of list when the head is demanded. More
- precisely:
-
-   semantics:         fringeList n s = id :: [b] -> [b]
-   dynamic behaviour: evalutates the nth element of the list when the
-		      head is demanded.
-   
- The idea is to provide a `rolling buffer' of length n.
-fringeList :: (Integral a) => a -> Strategy b -> [b] -> [b]
-fringeList n strat [] = []
-fringeList n strat (r:rs) = 
-  seqListNth n strat rs `par`
-  r:fringeList n strat rs
--}
-
-------------------------------------------------------------------------------
--- *			Arrays
-------------------------------------------------------------------------------
-instance (Ix a, NFData a, NFData b) => NFData (Array a b) where
-  rnf x = rnf (bounds x) `seq` seqList rnf (elems x) `seq` ()
-
--- | Apply a strategy to all elements of an array sequentially.
-seqArr :: (Ix b) => Strategy a -> Strategy (Array b a)
-seqArr s arr = seqList s (elems arr)
-
--- | Apply a strategy to all elements of an array in parallel.
-parArr :: (Ix b) => Strategy a -> Strategy (Array b a)
-parArr s arr = parList s (elems arr)
-
-{-# DEPRECATED Assoc "Does not belong in Control.Parallel.Strategies" #-}
-data  Assoc a b =  a := b  deriving ()
-
-instance (NFData a, NFData b) => NFData (Assoc a b) where
-  rnf (x := y) = rnf x `seq` rnf y `seq` ()
-
-------------------------------------------------------------------------------
--- *	                Some strategies specific for Lolita	
-------------------------------------------------------------------------------
-
-{-# DEPRECATED fstPairFstList "This was just an example. Write your own." #-}
-fstPairFstList :: (NFData a) => Strategy [(a,b)]
-fstPairFstList = seqListN 1 (seqPair rwhnf r0)
-
--- Some HACKs for Lolita. AFAIK force is just another name for our rnf and
--- sforce is a shortcut (definition here is identical to the one in Force.lhs)
-
-{-# DEPRECATED force, sforce "Lolita-specific hacks." #-}
-force :: (NFData a) => a -> a 
-sforce :: (NFData a) => a -> b -> b
-
-force = id $| rnf
-sforce x y = force x `seq` y
+{-# DEPRECATED r0 "Strategies must return a result, there is no r0 any more" #-}
+r0 :: a -> ()
+r0 _ = ()
