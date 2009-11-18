@@ -6,6 +6,7 @@ maintainer:	libraries@haskell.org
 synopsis:	Parallel programming library
 description:
     This package provides a library for parallel programming.
+category:       Control
 build-type:     Simple
 cabal-version:  >=1.2
 
