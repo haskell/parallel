@@ -33,21 +33,18 @@
 -- parallelism in GHC, we discovered that the original formulation of
 -- Strategies had some problems, in particular it lead to space leaks
 -- and difficulties expressing speculative parallelism.  Details are in
--- the paper \"Runtime Support for Multicore Haskell\" <http://www.macs.hw.ac.uk/~dsg/gph/papers/html/Strategies/strategies.html>.
+-- the paper \"Runtime Support for Multicore Haskell\" <http://www.haskell.org/~simonmar/papers/multicore-ghc.pdf>.
 --
--- The "Control.Parallel.Strategies" module has been rewritten in
--- version 2.
---
--- The main change is to the 'Strategy a' type synonym, which was
--- previously @a -> Done@ and is now @a -> a@.  This change helps
--- to fix the space leak described in \"Runtime Support for
--- Multicore Haskell\".  The problem is that the runtime will
--- currently retain the memory referenced by all sparks, until
--- they are evaluated.  Hence, we must arrange to evaluate all the
--- sparks eventually, just in case they aren't evaluated in
--- parallel, so that they don't cause a space leak.  This is why
--- we must return a \"new\" value after applying a 'Strategy', so
--- that the application can evaluate each spark created by the
+-- This module has been rewritten in version 2. The main change is to
+-- the 'Strategy a' type synonym, which was previously @a -> Done@ and
+-- is now @a -> a@.  This change helps to fix the space leak described
+-- in \"Runtime Support for Multicore Haskell\".  The problem is that
+-- the runtime will currently retain the memory referenced by all
+-- sparks, until they are evaluated.  Hence, we must arrange to
+-- evaluate all the sparks eventually, just in case they aren't
+-- evaluated in parallel, so that they don't cause a space leak.  This
+-- is why we must return a \"new\" value after applying a 'Strategy',
+-- so that the application can evaluate each spark created by the
 -- 'Strategy'.
 -- 
 -- The simple rule is this: you /must/ use the result of applying
