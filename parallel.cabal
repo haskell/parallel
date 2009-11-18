@@ -19,7 +19,9 @@ library {
         Control.Parallel.Strategies
   extensions:	CPP
   build-depends: base    >= 4 && < 5,
-                 deepseq >= 1 && < 1.1
+                 deepseq >= 1 && < 1.1,
+                 containers >= 0.2 && < 0.4,
+                 array      >= 0.2 && < 0.4
   ghc-options: -Wall
 
   if impl(ghc >= 6.11) {

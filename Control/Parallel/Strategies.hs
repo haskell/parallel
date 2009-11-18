@@ -73,9 +73,9 @@
 --     and there are transformation rules that automatically translate
 --     e.g. @parList rwnhf@ into a call to the optimised version.
 --
---   * NFData has been moved into a package of its own, @deepseq@,
---     and renamed to 'DeepSeq'.  The 'rnf' function is still exported
---     by 'Control.Parallel.Strategies'.
+--   * 'NFData' is deprecated; please use the @DeepSeq@ class in the @deepseq@
+--     package instead.  Note that since the 'Strategy' type changed, 'rnf'
+--     is no longer a 'Strategy': use 'rdeepseq' instead.
 
 -----------------------------------------------------------------------------
 
@@ -84,7 +84,7 @@ module Control.Parallel.Strategies (
     Strategy,
     using,
     withStrategy,
-    rwhnf, rnf,
+    rwhnf, rdeepseq,
     -- * Tuple strategies
     seqPair, parPair,
     seqTriple, parTriple,
@@ -107,13 +107,25 @@ module Control.Parallel.Strategies (
     Eval(..), unEval,
 
     -- * Deprecated functionality
-    Done, demanding, sparking, (>|), (>||), r0, 
+    NFData(..), Done, demanding, sparking, (>|), (>||), r0, 
   ) where
 
 import Data.Traversable
 import Control.Applicative
 import Control.Parallel
 import Control.DeepSeq
+
+-- imports for deprecated APIs
+import Data.Int
+import Data.Word
+import Data.Complex
+import qualified Data.Map
+import qualified Data.IntMap
+import qualified Data.Set
+import qualified Data.IntSet
+import Data.Tree
+import Data.Array
+import GHC.Real
 
 -- -----------------------------------------------------------------------------
 -- Eval
@@ -193,10 +205,10 @@ rwhnf a = a
 
 -- | A 'Strategy' that fully evaluates its argument
 -- 
--- > rnf a = deepseq a `pseq` a
+-- > rdeepseq a = deepseq a `pseq` a
 --
-rnf :: DeepSeq a => Strategy a
-rnf a = deepseq a `pseq` a
+rdeepseq :: DeepSeq a => Strategy a
+rdeepseq a = deepseq a `pseq` a
 
 -- -----------------------------------------------------------------------------
 -- Tuples
@@ -310,7 +322,7 @@ parListWHNF (x:xs) = x `par` parListWHNF xs
 parBufferWHNF :: Int -> Strategy [a]
 parBufferWHNF n0 xs0 = ret xs0 (start n0 xs0)
   where
-    ret (x:xs) (y:ys) = y `par` (x : return xs ys)
+    ret (x:xs) (y:ys) = y `par` (x : ret xs ys)
     ret xs     _      = xs
 
     start _ []     = []
@@ -395,3 +407,148 @@ sparking  = flip par
 {-# DEPRECATED r0 "Strategies must return a result, there is no r0 any more" #-}
 r0 :: a -> ()
 r0 _ = ()
+
+{-# DEPRECATED NFData "Use DeepSeq from deepseq:Control.DeepSeq instead" #-}
+{-# DEPRECATED rnf "Use rdeepseq instead" #-}
+class NFData a where
+  -- | Reduces its argument to (head) normal form.
+  rnf :: a -> ()
+  -- Default method. Useful for base types. A specific method is necessay for
+  -- constructed types
+  rnf a = a `seq` ()
+
+{-# DEPRECATED NFDataIntegral "Use DeepSeqIntegral from deepseq:Control.DeepSeq instead" #-}
+{-# DEPRECATED NFDataOrd "Use DeepSeqOrd from deepseq:Control.DeepSeq instead" #-}
+class (NFData a, Integral a) => NFDataIntegral a
+class (NFData a, Ord a) => NFDataOrd a
+
+instance (NFData a, NFData b) => NFData (a,b) where
+  rnf (x,y) = rnf x `seq` rnf y
+
+instance (NFData a, NFData b, NFData c) => NFData (a,b,c) where
+  rnf (x,y,z) = rnf x `seq` rnf y `seq` rnf z 
+
+instance (NFData a, NFData b, NFData c, NFData d) => NFData (a,b,c,d) where
+  rnf (x1,x2,x3,x4) = rnf x1 `seq` 
+		        rnf x2 `seq` 
+		        rnf x3 `seq` 
+		        rnf x4 
+
+instance (NFData a1, NFData a2, NFData a3, NFData a4, NFData a5) => 
+         NFData (a1, a2, a3, a4, a5) where
+  rnf (x1, x2, x3, x4, x5) =
+                  rnf x1 `seq`
+                  rnf x2 `seq`
+                  rnf x3 `seq`
+                  rnf x4 `seq`
+                  rnf x5
+
+instance (NFData a1, NFData a2, NFData a3, NFData a4, NFData a5, NFData a6) => 
+         NFData (a1, a2, a3, a4, a5, a6) where
+  rnf (x1, x2, x3, x4, x5, x6) =
+                  rnf x1 `seq`
+                  rnf x2 `seq`
+                  rnf x3 `seq`
+                  rnf x4 `seq`
+                  rnf x5 `seq`
+                  rnf x6
+
+instance (NFData a1, NFData a2, NFData a3, NFData a4, NFData a5, NFData a6, NFData a7) => 
+         NFData (a1, a2, a3, a4, a5, a6, a7) where
+  rnf (x1, x2, x3, x4, x5, x6, x7) =
+                  rnf x1 `seq`
+                  rnf x2 `seq`
+                  rnf x3 `seq`
+                  rnf x4 `seq`
+                  rnf x5 `seq`
+                  rnf x6 `seq`
+                  rnf x7
+
+instance (NFData a1, NFData a2, NFData a3, NFData a4, NFData a5, NFData a6, NFData a7, NFData a8) => 
+         NFData (a1, a2, a3, a4, a5, a6, a7, a8) where
+  rnf (x1, x2, x3, x4, x5, x6, x7, x8) =
+                  rnf x1 `seq`
+                  rnf x2 `seq`
+                  rnf x3 `seq`
+                  rnf x4 `seq`
+                  rnf x5 `seq`
+                  rnf x6 `seq`
+                  rnf x7 `seq`
+                  rnf x8
+
+instance (NFData a1, NFData a2, NFData a3, NFData a4, NFData a5, NFData a6, NFData a7, NFData a8, NFData a9) => 
+         NFData (a1, a2, a3, a4, a5, a6, a7, a8, a9) where
+  rnf (x1, x2, x3, x4, x5, x6, x7, x8, x9) =
+                  rnf x1 `seq`
+                  rnf x2 `seq`
+                  rnf x3 `seq`
+                  rnf x4 `seq`
+                  rnf x5 `seq`
+                  rnf x6 `seq`
+                  rnf x7 `seq`
+                  rnf x8 `seq`
+                  rnf x9
+
+instance NFData Int 
+instance NFData Integer
+instance NFData Float
+instance NFData Double
+
+instance NFData Int8
+instance NFData Int16
+instance NFData Int32
+instance NFData Int64
+
+instance NFData Word8
+instance NFData Word16
+instance NFData Word32
+instance NFData Word64
+
+instance NFDataIntegral Int
+instance NFDataOrd Int
+
+--Rational and complex numbers.
+
+instance (Integral a, NFData a) => NFData (Ratio a) where
+  rnf (x:%y) = rnf x `seq` 
+               rnf y `seq`
+               ()
+
+instance (RealFloat a, NFData a) => NFData (Complex a) where
+  rnf (x:+y) = rnf x `seq` 
+	         rnf y `seq`
+               ()
+
+instance NFData Char
+instance NFData Bool
+instance NFData ()
+
+instance NFData a => NFData (Maybe a) where
+    rnf Nothing  = ()
+    rnf (Just x) = rnf x
+
+instance (NFData a, NFData b) => NFData (Either a b) where
+    rnf (Left x)  = rnf x
+    rnf (Right y) = rnf y
+
+instance (NFData k, NFData a) => NFData (Data.Map.Map k a) where
+    rnf = rnf . Data.Map.toList
+
+instance NFData a => NFData (Data.Set.Set a) where
+    rnf = rnf . Data.Set.toList
+
+instance NFData a => NFData (Data.Tree.Tree a) where
+    rnf (Data.Tree.Node r f) = rnf r `seq` rnf f
+
+instance NFData a => NFData (Data.IntMap.IntMap a) where
+    rnf = rnf . Data.IntMap.toList
+
+instance NFData Data.IntSet.IntSet where
+    rnf = rnf . Data.IntSet.toList
+
+instance NFData a => NFData [a] where
+  rnf [] = ()
+  rnf (x:xs) = rnf x `seq` rnf xs
+
+instance (Ix a, NFData a, NFData b) => NFData (Array a b) where
+  rnf x = rnf (bounds x) `seq` rnf (elems x) `seq` ()
