@@ -37,7 +37,7 @@
 --
 -- This module has been rewritten in version 2. The main change is to
 -- the 'Strategy a' type synonym, which was previously @a -> Done@ and
--- is now @a -> a@.  This change helps to fix the space leak described
+-- is now @a -> Eval a@.  This change helps to fix the space leak described
 -- in \"Runtime Support for Multicore Haskell\".  The problem is that
 -- the runtime will currently retain the memory referenced by all
 -- sparks, until they are evaluated.  Hence, we must arrange to
@@ -60,11 +60,12 @@
 --
 -- The other changes in version 2.x are:
 --
---   * Strategies can now be defined using a convenient Applicative
---     type Eval.  e.g. parList s = unEval $ traverse (Par . s)
+--   * Strategies can now be defined using a convenient Monad/Applicative
+--     type, 'Eval'.  e.g. @parList s = traverse (Par . (``using`` s))@
 --
 --   * 'parList' has been generalised to 'parTraverse', which works on
---     any 'Traversable' type.
+--     any 'Traversable' type, and similarly 'seqList' has been generalised
+--     to 'seqTraverse'
 --
 --   * 'parList' and 'parBuffer' have versions specialised to 'rwhnf',
 --     and there are transformation rules that automatically translate
@@ -81,7 +82,7 @@ module Control.Parallel.Strategies (
     Strategy,
     using,
     withStrategy,
-    rwhnf, rdeepseq,
+    rwhnf, rdeepseq, r0, rpar,
     -- * Tuple strategies
     seqPair, parPair,
     seqTriple, parTriple,
@@ -107,13 +108,14 @@ module Control.Parallel.Strategies (
     NFData(..), 
 
     -- * Deprecated functionality
-    Done, demanding, sparking, (>|), (>||), r0, 
+    Done, demanding, sparking, (>|), (>||),
   ) where
 
 import Data.Traversable
 import Control.Applicative
 import Control.Parallel
 import Control.DeepSeq
+import Control.Monad
 
 -- -----------------------------------------------------------------------------
 -- Eval
@@ -130,10 +132,10 @@ import Control.DeepSeq
 -- For example,
 --
 -- > parList :: Strategy a -> Strategy [a]
--- > parList strat = unEval . traverse (Par . strat)
+-- > parList strat = traverse (Par . (`using` strat))
 --
 -- > seqPair :: Strategy a -> Strategy b -> Strategy (a,b)
--- > seqPair f g (a,b) = unEval $ (,) <$> Seq (f a) <*> Seq (g b)
+-- > seqPair f g (a,b) = pure (,) <$> f a <*> g b
 --
 data Eval a = Seq a | Par a | Lazy a
 
@@ -143,15 +145,18 @@ unEval (Par  a) = a
 unEval (Lazy a) = a
 
 instance Functor Eval where
-  fmap f (Par   a) = Seq   (a `par`  f a) -- only Par once: context becomes Seq
-  fmap f (Seq   a) = Seq   (a `pseq` f a)
-  fmap f (Lazy  a) = Lazy  (f a)
+  fmap f x = x >>= return . f
 
 instance Applicative Eval where
-  pure a = Lazy a
-  Par f  <*> x = f `par`  fmap f x
-  Seq f  <*> x = f `pseq` fmap f x
-  Lazy f <*> x = fmap f x
+  pure a = return a
+  (<*>) = ap
+
+instance Monad Eval where
+  return  = Lazy
+  m >>= k = case m of
+              Seq  a -> a `pseq` k a
+              Par  a -> a `par`  k a
+              Lazy a -> k a
 
 -- -----------------------------------------------------------------------------
 -- Strategies
@@ -171,51 +176,62 @@ instance Applicative Eval where
 -- structure, and then uses the returned value, discarding the old
 -- value.  This idiom is expressed by the 'using' function.
 -- 
-type Strategy a = a -> a
+type Strategy a = a -> Eval a
 
 -- | evaluate a value using the given 'Strategy'.
 --
 -- > using x s = s x
 --
 using :: a -> Strategy a -> a
-using x s = s x
+using x s = unEval (s x)
 
 -- | evaluate a value using the given 'Strategy'.  This is simply
 -- 'using' with the arguments reversed, and is equal to '($)'.
 -- 
 withStrategy :: Strategy a -> a -> a
-withStrategy = ($)
+withStrategy = flip using
+
+-- | A 'Strategy' that does no evaluation of its argument
+r0 :: Strategy a
+r0 = Lazy
 
 -- | A 'Strategy' that simply evaluates its argument to Weak Head Normal
 -- Form (i.e. evaluates it as far as the topmost constructor).
 rwhnf :: Strategy a
-rwhnf a = a
+rwhnf = Seq
+
+-- | A 'Strategy' that evaluates its argument in parallel
+rpar :: Strategy a
+rpar = Par
 
 -- | A 'Strategy' that fully evaluates its argument
 -- 
 -- > rdeepseq a = rnf a `pseq` a
 --
 rdeepseq :: NFData a => Strategy a
-rdeepseq a = rnf a `pseq` a
+rdeepseq a = Seq (rnf a `pseq` a)
 
 -- -----------------------------------------------------------------------------
 -- Tuples
 
 seqPair :: Strategy a -> Strategy b -> Strategy (a,b)
-seqPair f g (a,b) = unEval $
-  (,) <$> Seq (f a) <*> Seq (g b)
+seqPair f g (a,b) = pure (,) <*> f a <*> g b
 
 parPair :: Strategy a -> Strategy b -> Strategy (a,b)
-parPair f g (a,b) = unEval $
-  (,) <$> Par (f a) <*> Par (g b)
+parPair f g (a,b) = do
+  a' <- Par (a `using` f)
+  b' <- Par (b `using` g)
+  return (a',b')
 
 seqTriple :: Strategy a -> Strategy b -> Strategy c -> Strategy (a,b,c)
-seqTriple f g h (a,b,c) = unEval $
-  (,,) <$> Seq (f a) <*> Seq (g b) <*> Seq (h c)
+seqTriple f g h (a,b,c) = pure (,,) <*> f a <*> g b <*> h c
 
 parTriple :: Strategy a -> Strategy b -> Strategy c -> Strategy (a,b,c)
-parTriple f g h (a,b,c) = unEval $
-  (,,) <$> Par (f a) <*> Par (g b) <*> Par (h c)
+parTriple f g h (a,b,c) = do
+  a' <- Par (a `using` f)
+  b' <- Par (b `using` g)
+  c' <- Par (c `using` h)
+  return (a',b',c')
 
 -- -----------------------------------------------------------------------------
 -- General sequential/parallel traversals
@@ -224,13 +240,13 @@ parTriple f g h (a,b,c) = unEval $
 -- of 'Traversable', and sparks each of the elements using the supplied
 -- strategy.
 parTraverse :: Traversable t => Strategy a -> Strategy (t a)
-parTraverse strat = unEval . traverse (Par . strat)
+parTraverse strat = traverse (Par . (`using` strat))
 
 -- | A strategy that traverses a container data type with an instance
 -- of 'Traversable', and evaluates each of the elements in left-to-right
 -- sequence using the supplied strategy.
 seqTraverse :: Traversable t => Strategy a -> Strategy (t a)
-seqTraverse strat = unEval . traverse (Seq . strat)
+seqTraverse = traverse
 
 {-# SPECIALISE parTraverse :: Strategy a -> Strategy [a] #-}
 {-# SPECIALISE seqTraverse :: Strategy a -> Strategy [a] #-}
@@ -246,20 +262,24 @@ parList = parTraverse
 -- | Evaluate each of the elements of a list sequentially from left to right
 -- using the given strategy.  Equivalent to 'seqTraverse' at the list type.
 seqList :: Strategy a -> Strategy [a]
-seqList = seqTraverse
+seqList = traverse
 
 parListN :: Int -> Strategy a -> Strategy [a]
-parListN n strat xs = parList strat as ++ bs where (as,bs) = splitAt n xs
+parListN n strat xs = do
+  let (as,bs) = splitAt n xs
+  as <- parList strat as
+  return (as ++ bs)
 
 parListChunk :: Int -> Strategy a -> Strategy [a]
-parListChunk n strat xs = concat (parList (seqList strat) (chunk n xs))
+parListChunk n strat xs =
+  concat `fmap` parList (seqList strat) (chunk n xs)
 
 chunk :: Int -> [a] -> [[a]]
 chunk _ [] = []
 chunk n xs = as : chunk n bs where (as,bs) = splitAt n xs
 
 parMap :: Strategy b -> (a -> b) -> [a] -> [b]
-parMap strat f = parList strat . map f
+parMap strat f = (`using` parList strat) . map f 
 
 -- -----------------------------------------------------------------------------
 -- parBuffer
@@ -278,7 +298,7 @@ parMap strat f = parList strat . map f
 -- fixed number of elements ahead.
 
 parBuffer :: Int -> Strategy a -> [a] -> [a]
-parBuffer n strat xs = parBufferWHNF n (map strat xs)
+parBuffer n strat xs = map (`using` strat) xs `using` parBufferWHNF n
 
 -- -----------------------------------------------------------------------------
 -- Simple strategies
@@ -287,7 +307,7 @@ parBuffer n strat xs = parBufferWHNF n (map strat xs)
 -- than their more general counterparts.  We use RULES to do the
 -- specialisation.
 
-{-# RULES 
+{- RULES 
 "parList/rwhnf" parList rwhnf = parListWHNF
 "parList/id"    parList id    = parListWHNF
 "parBuffer/rwhnf" forall n . parBuffer n rwhnf = parBufferWHNF n
@@ -300,15 +320,16 @@ parBuffer n strat xs = parBufferWHNF n (map strat xs)
 -- automatically optimised to 'parListWHNF'.  It is here for
 -- experimentation purposes only.
 parListWHNF :: Strategy [a]
-parListWHNF []     = []
-parListWHNF (x:xs) = x `par` parListWHNF xs
+parListWHNF xs = go xs `pseq` return xs
+  where go []     = []
+        go (x:xs) = x `par` go xs
 
 -- | version of 'parBuffer' specialised to 'rwhnf'.  You should
 -- never need to use this directly, since 'parBuffer rwhnf' is
 -- automatically optimised to 'parBufferWHNF'.  It is here for
 -- experimentation purposes only.
 parBufferWHNF :: Int -> Strategy [a]
-parBufferWHNF n0 xs0 = ret xs0 (start n0 xs0)
+parBufferWHNF n0 xs0 = return (ret xs0 (start n0 xs0))
   where
     ret (x:xs) (y:ys) = y `par` (x : ret xs ys)
     ret xs     _      = xs
@@ -343,14 +364,14 @@ f $|| s = \ x -> let z = x `using` s in z `par` f z
 -- the second function is evaluated using the given strategy, 
 -- and then given to the first function.
 (.|) :: (b -> c) -> Strategy b -> (a -> b) -> (a -> c)
-(.|) f s g = \ x -> let z = s (g x) in 
+(.|) f s g = \ x -> let z = g x `using` s in 
                     z `pseq` f z
 
 -- | Parallel function composition. The result of the second
 -- function is evaluated using the given strategy,
 -- in parallel with the application of the first function.
 (.||) :: (b -> c) -> Strategy b -> (a -> b) -> (a -> c)
-(.||) f s g = \ x -> let z = s (g x) in 
+(.||) f s g = \ x -> let z = g x `using` s in 
                     z `par` f z
 
 -- | Sequential inverse function composition, 
@@ -358,7 +379,7 @@ f $|| s = \ x -> let z = x `using` s in z `par` f z
 -- The result of the first function is evaluated using the 
 -- given strategy, and then given to the second function.
 (-|) :: (a -> b) -> Strategy b -> (b -> c) -> (a -> c)
-(-|) f s g = \ x -> let z = s (f x) in 
+(-|) f s g = \ x -> let z = f x `using` s in 
                     z `pseq` g z
 
 -- | Parallel inverse function composition,
@@ -367,7 +388,7 @@ f $|| s = \ x -> let z = x `using` s in z `par` f z
 -- given strategy, in parallel with the application of the 
 -- second function.
 (-||) :: (a -> b) -> Strategy b -> (b -> c) -> (a -> c)
-(-||) f s g = \ x -> let z = s (f x) in 
+(-||) f s g = \ x -> let z = f x `using` s in 
                     z `par` g z
 
 -- -----------------------------------------------------------------------------
@@ -391,7 +412,3 @@ sparking  = flip par
 {-# DEPRECATED (>||) "Use par or $|| instead" #-}
 (>||) :: Done -> Done -> Done 
 (>||) = par
-
-{-# DEPRECATED r0 "Strategies must return a result, there is no r0 any more" #-}
-r0 :: a -> ()
-r0 _ = ()
