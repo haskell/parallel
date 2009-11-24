@@ -1,5 +1,5 @@
 name:		parallel
-version:	2.0.0.0
+version:	2.1.0.0
 license:	BSD3
 license-file:	LICENSE
 maintainer:	libraries@haskell.org
@@ -20,7 +20,7 @@ library {
         Control.Parallel.Strategies
   extensions:	CPP
   build-depends: base    >= 4 && < 5,
-                 deepseq >= 1 && < 1.1,
+                 deepseq >= 1.1 && < 1.2,
                  containers >= 0.2 && < 0.4,
                  array      >= 0.2 && < 0.4
   ghc-options: -Wall
