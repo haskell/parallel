@@ -267,8 +267,8 @@ seqList = traverse
 parListN :: Int -> Strategy a -> Strategy [a]
 parListN n strat xs = do
   let (as,bs) = splitAt n xs
-  as <- parList strat as
-  return (as ++ bs)
+  as' <- parList strat as
+  return (as' ++ bs)
 
 parListChunk :: Int -> Strategy a -> Strategy [a]
 parListChunk n strat xs =
@@ -322,7 +322,7 @@ parBuffer n strat xs = map (`using` strat) xs `using` parBufferWHNF n
 parListWHNF :: Strategy [a]
 parListWHNF xs = go xs `pseq` return xs
   where go []     = []
-        go (x:xs) = x `par` go xs
+        go (y:ys) = y `par` go ys
 
 -- | version of 'parBuffer' specialised to 'rwhnf'.  You should
 -- never need to use this directly, since 'parBuffer rwhnf' is
