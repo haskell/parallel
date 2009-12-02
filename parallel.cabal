@@ -18,7 +18,7 @@ library {
   exposed-modules:
         Control.Parallel
         Control.Parallel.Strategies
-  extensions:	CPP
+  extensions:	CPP BangPatterns
   build-depends: base    >= 4 && < 5,
                  deepseq >= 1.1 && < 1.2,
                  containers >= 0.2 && < 0.4,

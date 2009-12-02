@@ -265,10 +265,12 @@ seqList :: Strategy a -> Strategy [a]
 seqList = traverse
 
 parListN :: Int -> Strategy a -> Strategy [a]
-parListN n strat xs = do
-  let (as,bs) = splitAt n xs
-  as' <- parList strat as
-  return (as' ++ bs)
+parListN 0   _strat xs     = return xs
+parListN !_n _strat []     = return []
+parListN !n strat (x:xs) = do
+  x' <- Par (x `using` strat)
+  xs' <- parListN (n-1) strat xs
+  return (x':xs')
 
 parListChunk :: Int -> Strategy a -> Strategy [a]
 parListChunk n strat xs =
