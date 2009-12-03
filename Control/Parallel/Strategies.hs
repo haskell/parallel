@@ -295,7 +295,7 @@ parMap strat f = (`using` parList strat) . map f
 -- head is demanded.
 --
 -- The idea is to provide a `rolling buffer' of length n.  It is a
--- better than 'parList' for a lazy stream, because 'parList' will
+-- better than 'parList' for a lazy stream, because p'arList' will
 -- evaluate the entire list, whereas 'parBuffer' will only evaluate a
 -- fixed number of elements ahead.
 
@@ -309,11 +309,9 @@ parBuffer n strat xs = map (`using` strat) xs `using` parBufferWHNF n
 -- than their more general counterparts.  We use RULES to do the
 -- specialisation.
 
-{- RULES 
+{-# RULES 
 "parList/rwhnf" parList rwhnf = parListWHNF
-"parList/id"    parList id    = parListWHNF
-"parBuffer/rwhnf" forall n . parBuffer n rwhnf = parBufferWHNF n
-"parBuffer/id"    forall n . parBuffer n id    = parBufferWHNF n
+"parBuffer/rwhnf" forall n . parBuffer n rwhnf = (`using` parBufferWHNF n)
  #-}
 
 -- | version of 'parList' specialised to 'rwhnf'.  This version is
