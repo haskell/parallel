@@ -180,7 +180,7 @@ type Strategy a = a -> Eval a
 
 -- | evaluate a value using the given 'Strategy'.
 --
--- > using x s = s x
+-- > using x s = unEval (s x)
 --
 using :: a -> Strategy a -> a
 using x s = unEval (s x)
