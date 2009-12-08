@@ -120,16 +120,42 @@ import Control.Monad
 -- -----------------------------------------------------------------------------
 -- Eval
 
--- | `Eval` is an Applicative Functor that makes it easier to define
--- parallel strategies that involve traversing structures.
+-- | 'Eval' is a Monad that makes it easier to define parallel
+-- strategies.
 --
--- a 'Seq' value will be evaluated strictly in sequence in its context,
--- whereas a 'Par' value wraps an expression that may be evaluated in
--- parallel.  The Applicative instance allows sequential composition,
--- making it possible to describe an evaluateion strategy by composing
--- 'Par' and 'Seq' with '<*>'.
+-- An 'Eval' is a value tagged with either 'Seq', 'Par', or 'Lazy'.
+-- The Monad instance for 'Eval' is defined as follows:
 --
--- For example,
+-- > instance Monad Eval where
+-- >   return  = Lazy
+-- >   m >>= k = case m of
+-- >               Seq  a -> a `pseq` k a
+-- >               Par  a -> a `par`  k a
+-- >               Lazy a -> k a
+--
+-- the '>>=' operator inspects the value returned by the left argument, and
+--
+--   * if it is wrapped in 'Seq', then 'pseq' is applied to the value
+--     before passing it to the right argument
+--
+--   * if it is wrapped in 'Par', then 'par' is applied to the value
+--     before passing it to the right argument
+--
+--   * if it is 'Lazy', then it is passed untouched.
+--
+-- For example, if you wanted to construct a 'Strategy' for a pair that
+-- sparked the first component in parallel and then evaluated the second
+-- component, you could write
+--
+-- > myStrat :: Strategy (a,b)
+-- > myStrat (a,b) = do { a' <- Par a; b' <- Seq b; return (a',b') }
+--
+-- Alternatively, you could write this more compactly using the
+-- Applicative style as
+--
+-- > myStrat (a,b) = (,) <$> Par a <*> Seq b
+
+-- More examples, using the Applicative instance:
 --
 -- > parList :: Strategy a -> Strategy [a]
 -- > parList strat = traverse (Par . (`using` strat))
@@ -186,7 +212,7 @@ using :: a -> Strategy a -> a
 using x s = unEval (s x)
 
 -- | evaluate a value using the given 'Strategy'.  This is simply
--- 'using' with the arguments reversed, and is equal to '($)'.
+-- 'using' with the arguments reversed.
 -- 
 withStrategy :: Strategy a -> a -> a
 withStrategy = flip using
