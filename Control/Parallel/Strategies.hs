@@ -66,9 +66,10 @@ module Control.Parallel.Strategies (
        , parListNth
        , evalListSplitAt   -- :: Int -> Strategy [a] -> Strategy [a] -> Strategy [a]
        , parListSplitAt
+       , parListChunk
        , parMap
 
-         -- * Strategies for lazy lists
+         -- ** Strategies for lazy lists
        , evalBuffer        -- :: Int -> Strategy a -> Strategy [a]
        , parBuffer
 
@@ -402,6 +403,20 @@ evalListNth n strat = evalListSplitAt n r0 (evalListN 1 strat)
 parListNth :: Int -> Strategy a -> Strategy [a]
 parListNth n strat = evalListNth n (rpar `dot` strat)
 
+-- | Divides a list into chunks, and applies the strategy
+-- @'evalList' strat@ to each chunk in parallel.
+--
+-- It is expected that this function will be replaced by a more
+-- generic clustering infrastructure in the future.
+--
+parListChunk :: Int -> Strategy a -> Strategy [a]
+parListChunk n strat xs =
+  concat `fmap` parList (evalList strat) (chunk n xs)
+
+chunk :: Int -> [a] -> [[a]]
+chunk _ [] = []
+chunk n xs = as : chunk n bs where (as,bs) = splitAt n xs
+
 -- Non-compositional version of 'parList', evaluating list elements
 -- to weak head normal form.
 -- Not to be exported; used for optimisation.
@@ -420,6 +435,13 @@ parListWHNF xs = go xs `pseq` return xs
  "parList/rseq" parList rseq = parListWHNF
  #-}
 
+-- --------------------------------------------------------------------------
+-- Convenience
+
+-- | A combination of 'parList' and 'map', encapsulating a common pattern:
+--
+-- > parMap strat f = withStrategy strat . map f
+--
 parMap :: Strategy b -> (a -> b) -> [a] -> [b]
 parMap strat f = (`using` parList strat) . map f 
 
