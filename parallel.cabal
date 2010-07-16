@@ -16,6 +16,7 @@ source-repository head
 
 library {
   exposed-modules:
+        Control.Seq
         Control.Parallel
         Control.Parallel.Strategies
   extensions:	CPP BangPatterns
