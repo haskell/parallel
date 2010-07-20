@@ -52,6 +52,7 @@ module Control.Parallel.Strategies (
 
          -- * Injection of sequential strategies
        , evalSeq           -- :: Seq.Strategy a -> Strategy a
+       , SeqStrategy
 
          -- * Strategies for traversable data types
        , evalTraversable   -- :: Traversable t => Strategy a -> Strategy (t a)
@@ -74,6 +75,10 @@ module Control.Parallel.Strategies (
        , parBuffer
 
          -- * Strategies for tuples
+
+         -- | Evaluate the components of a tuple according to the
+         -- given strategies.
+
        , evalTuple2        -- :: Strategy a -> ... -> Strategy (a,...)
        , evalTuple3
        , evalTuple4
@@ -82,6 +87,11 @@ module Control.Parallel.Strategies (
        , evalTuple7
        , evalTuple8
        , evalTuple9
+
+
+       -- | Evaluate the components of a tuple in parallel according to
+       -- the given strategies.
+
        , parTuple2         -- :: Strategy a -> ... -> Strategy (a,...)
        , parTuple3
        , parTuple4
@@ -128,7 +138,7 @@ import Control.Parallel
 import Control.DeepSeq
 import Control.Monad
 
-import qualified Control.Seq as Seq
+import qualified Control.Seq
 
 infixr 9 `dot`     -- same as (.)
 infixl 0 `using`   -- lowest precedence and associate to the left
@@ -153,20 +163,20 @@ infixl 0 `using`   -- lowest precedence and associate to the left
 -- component, you could write
 --
 -- > myStrat :: Strategy (a,b)
--- > myStrat (a,b) = do { a' <- rpar a; b' <- rwhnf b; return (a',b') }
+-- > myStrat (a,b) = do { a' <- rpar a; b' <- rseq b; return (a',b') }
 --
 -- Alternatively, you could write this more compactly using the
 -- Applicative style as
 --
--- > myStrat (a,b) = (,) <$> rpar a <*> rwhnf b
+-- > myStrat (a,b) = (,) <$> rpar a <*> rseq b
 
 -- More examples, using the Applicative instance:
 --
 -- > parList :: Strategy a -> Strategy [a]
 -- > parList strat = traverse (rpar `dot` strat))
 --
--- > seqPair :: Strategy a -> Strategy b -> Strategy (a,b)
--- > seqPair f g (a,b) = pure (,) <$> f a <*> g b
+-- > evalPair :: Strategy a -> Strategy b -> Strategy (a,b)
+-- > evalPair f g (a,b) = pure (,) <$> f a <*> g b
 --
 
 data Eval a = Done a
@@ -274,11 +284,13 @@ strat2 `dot` strat1 = strat2 . runEval . strat1
 -- | Inject a sequential strategy (ie. coerce a sequential strategy
 -- to a general strategy).
 --
--- Thanks to 'evalSeq', the type @SeqStrategy a@ (which is a synonym for
--- @'Control.Seq.Strategy' a@) is a subtype
+-- Thanks to 'evalSeq', the type @Control.Seq.Strategy a@ is a subtype
 -- of @'Strategy' a@.
-evalSeq :: Seq.Strategy a -> Strategy a
+evalSeq :: SeqStrategy a -> Strategy a
 evalSeq strat x = strat x `pseq` return x
+
+-- | a name for @Control.Seq.Strategy@, for documetnation only.
+type SeqStrategy a = Control.Seq.Strategy a
 
 -- --------------------------------------------------------------------------
 -- Basic strategies (some imported from SeqStrategies)
@@ -290,11 +302,11 @@ evalSeq strat x = strat x `pseq` return x
 r0 :: Strategy a
 r0 x = return x
 
--- Proof of r0 == evalSeq SeqStrategies.r0
+-- Proof of r0 == evalSeq Control.Seq.r0
 --
---    evalSeq SeqStrategies.r0
--- == \x -> SeqStrategies.r0 x `pseq` return x
--- == \x -> SeqStrategies.Done `pseq` return x
+--    evalSeq Control.Seq.r0
+-- == \x -> Control.Seq.r0 x `pseq` return x
+-- == \x -> Control.Seq.Done `pseq` return x
 -- == \x -> return x
 -- == r0
 
@@ -305,11 +317,11 @@ r0 x = return x
 rseq :: Strategy a
 rseq x = x `pseq` return x
 
--- Proof of rseq == evalSeq SeqStrategies.rseq
+-- Proof of rseq == evalSeq Control.Seq.rseq
 --
---    evalSeq SeqStrategies.rseq
--- == \x -> SeqStrategies.rseq x `pseq` return x
--- == \x -> (x `seq` SeqStrategies.Done) `pseq` return x
+--    evalSeq Control.Seq.rseq
+-- == \x -> Control.Seq.rseq x `pseq` return x
+-- == \x -> (x `seq` Control.Seq.Done) `pseq` return x
 -- == \x -> x `pseq` return x
 -- == rseq
 
@@ -320,12 +332,12 @@ rseq x = x `pseq` return x
 rdeepseq :: NFData a => Strategy a
 rdeepseq x = rnf x `pseq` return x
 
--- Proof of rdeepseq == evalSeq SeqStrategies.rdeepseq
+-- Proof of rdeepseq == evalSeq Control.Seq.rdeepseq
 --
---    evalSeq SeqStrategies.rdeepseq
--- == \x -> SeqStrategies.rdeepseq x `pseq` return x
--- == \x -> (x `deepseq` SeqStrategies.Done) `pseq` return x
--- == \x -> (rnf x `seq` SeqStrategies.Done) `pseq` return x
+--    evalSeq Control.Seq.rdeepseq
+-- == \x -> Control.Seq.rdeepseq x `pseq` return x
+-- == \x -> (x `deepseq` Control.Seq.Done) `pseq` return x
+-- == \x -> (rnf x `seq` Control.Seq.Done) `pseq` return x
 -- == \x -> rnf x `pseq` return x
 -- == rdeepseq
 
@@ -450,7 +462,7 @@ parMap strat f = (`using` parList strat) . map f
 
 -- List-based non-compositional rolling buffer strategy, evaluating list
 -- elements to weak head normal form.
--- Not to be exported; used in evalBuffer' and for optimisation.
+-- Not to be exported; used in evalBuffer and for optimisation.
 evalBufferWHNF :: Int -> Strategy [a]
 evalBufferWHNF n0 xs0 = return (ret xs0 (start n0 xs0))
   where -- ret :: [a] -> [a] -> [a]
@@ -462,9 +474,7 @@ evalBufferWHNF n0 xs0 = return (ret xs0 (start n0 xs0))
            start !_n []     = []
            start !n  (y:ys) = y `pseq` start (n-1) ys
 
--- | 'evalBuffer' is a rolling buffer strategy combinator for (lazy) lists,
--- much like 'evalBuffer', except that it realises the buffer as a lazy list
--- (with worst-case constant-time operations).
+-- | 'evalBuffer' is a rolling buffer strategy combinator for (lazy) lists.
 --
 -- 'evalBuffer' is not as compositional as the type suggests. In fact,
 -- it evaluates list elements at least to weak head normal form,
@@ -477,7 +487,7 @@ evalBuffer n strat =  evalBufferWHNF n . map (withStrategy strat)
 
 -- Like evalBufferWHNF but sparks the list elements when pushing them
 -- into the buffer.
--- Not to be exported; used in parBuffer' and for optimisation.
+-- Not to be exported; used in parBuffer and for optimisation.
 parBufferWHNF :: Int -> Strategy [a]
 parBufferWHNF n0 xs0 = return (ret xs0 (start n0 xs0))
   where -- ret :: [a] -> [a] -> [a]
@@ -489,21 +499,6 @@ parBufferWHNF n0 xs0 = return (ret xs0 (start n0 xs0))
            start !_n []     = []
            start !n  (y:ys) = y `par` start (n-1) ys
 
-{- 
-   Alternative parBufferWHNF using the Eval monad.  Probably slightly
-   less efficient.
-
-parBufferWHNF :: Int -> Strategy [a]
-parBufferWHNF n xs = return (ret xs (start n xs))
-  where -- ret :: [a] -> [a] -> [a]
-           ret (x:xs) (y:ys) = y `par` (x : ret xs ys)
-           ret xs     []     = xs
-
-        -- start :: Int -> [a] -> [a]
-           start 0   ys     = ys
-           start !_n []     = []
-           start !n  (y:ys) = y `par` start (n-1) ys
--}
 
 -- | Like 'evalBuffer' but evaluates the list elements in parallel when
 -- pushing them into the buffer.
@@ -523,7 +518,6 @@ parBuffer n strat = parBufferWHNF n . map (withStrategy strat)
 -- --------------------------------------------------------------------------
 -- Strategies for tuples
 
--- | Evaluate the components of a tuple according to the given strategies.
 evalTuple2 :: Strategy a -> Strategy b -> Strategy (a,b)
 evalTuple2 strat1 strat2 (x1,x2) =
   pure (,) <*> strat1 x1 <*> strat2 x2
@@ -556,8 +550,6 @@ evalTuple9 :: Strategy a -> Strategy b -> Strategy c -> Strategy d -> Strategy e
 evalTuple9 strat1 strat2 strat3 strat4 strat5 strat6 strat7 strat8 strat9 (x1,x2,x3,x4,x5,x6,x7,x8,x9) =
   pure (,,,,,,,,) <*> strat1 x1 <*> strat2 x2 <*> strat3 x3 <*> strat4 x4 <*> strat5 x5 <*> strat6 x6 <*> strat7 x7 <*> strat8 x8 <*> strat9 x9
 
--- | Evaluate the components of a tuple in parallel according to
--- the given strategies.
 parTuple2 :: Strategy a -> Strategy b -> Strategy (a,b)
 parTuple2 strat1 strat2 =
   evalTuple2 (rpar `dot` strat1) (rpar `dot` strat2)
