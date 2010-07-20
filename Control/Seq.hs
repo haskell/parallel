@@ -26,9 +26,6 @@ module Control.Seq
        , using            -- :: a -> Strategy a -> a
        , withStrategy     -- :: Strategy a -> a -> a
 
-         -- * Composition of sequential strategies
-       , dot              -- :: Strategy a -> Strategy a -> Strategy a
-
          -- * Basic sequential strategies
        , r0               -- :: Strategy a
        , rseq
@@ -46,6 +43,10 @@ module Control.Seq
        , seqArrayBounds   -- :: Ix i => Strategy i -> Strategy (Array i a)
 
          -- * Sequential strategies for tuples
+
+         -- | Evaluate the components of a tuple according to the given strategies.
+         -- No guarantee is given as to the order of evaluation.
+
        , seqTuple2        -- :: Strategy a -> ... -> Strategy (a,...)
        , seqTuple3
        , seqTuple4
@@ -65,7 +66,6 @@ import Data.Ix (Ix)
 import Data.Array (Array)
 import qualified Data.Array (bounds, elems)
 
-infixr 9 `dot`     -- same as function composition (.)
 infixl 0 `using`   -- lowest precedence and associate to the left
 
 -- --------------------------------------------------------------------------
@@ -84,25 +84,6 @@ x `using` strat = strat x `seq` x
 -- This is simply 'using' with arguments reversed.
 withStrategy :: Strategy a -> a -> a
 withStrategy = flip using
-
--- | Compose two strategies sequentially.
--- This is the analogue to function composition on strategies.
--- (Probably not very useful; provided because "Control.Parallel.Strategies"
--- provides the same function.)
---
--- > strat2 `dot` strat1 == strat2 . withStrategy strat1
---
-dot :: Strategy a -> Strategy a -> Strategy a
-(strat2 `dot` strat1) x = strat1 x `seq` strat2 x
-                          
--- More reasons for removing dot:
--- * It is inefficient: Traverses 'x' twice.
--- * It does not satisfy the property that 'Strategies.dot' has; there is 
---   a counter-example to the equation
---   > strat2 `dot` strat1 == strat2 . withStrategy strat1
---   Try strat2 = r0 and strat1 = rseq and apply to 'undefined';
---   the LHS will diverge while the RHS will evaluate to '()'.
-
 
 -- --------------------------------------------------------------------------
 -- Basic sequential strategies
@@ -176,8 +157,6 @@ seqMap stratK stratV = seqList (seqTuple2 stratK stratV) . Data.Map.toList
 -- --------------------------------------------------------------------------
 -- Sequential strategies for tuples
 
--- | Evaluate the components of a tuple according to the given strategies.
--- No guarantee is given as to the order of evaluation.
 seqTuple2 :: Strategy a -> Strategy b -> Strategy (a,b)
 seqTuple2 strat1 strat2 (x1,x2) =
   strat1 x1 `seq` strat2 x2
