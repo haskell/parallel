@@ -824,9 +824,5 @@ The naming scheme is now as follows:
   * An exception to the type driven naming scheme are 'evalBuffer' and
      'parBuffer', which are not named after their type constructor (lists)
      but after their function (rolling buffer of fixed size).
-
-  * A strategy combinator that is not as compositional as its type
-    suggests is suffixed with @'@.
-    Examples: 'evalFunctor'', 'parBuffer''.
 -}
 
