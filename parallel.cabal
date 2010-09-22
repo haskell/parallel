@@ -1,5 +1,5 @@
 name:		parallel
-version:	3.1.0.0
+version:	3.1.0.1
 license:	BSD3
 license-file:	LICENSE
 maintainer:	libraries@haskell.org
@@ -20,10 +20,10 @@ library {
         Control.Parallel
         Control.Parallel.Strategies
   extensions:	CPP BangPatterns
-  build-depends: base    >= 4 && < 5,
+  build-depends: base    >= 3 && < 5,
                  deepseq >= 1.1 && < 1.2,
-                 containers >= 0.2 && < 0.5,
-                 array      >= 0.2 && < 0.4
+                 containers >= 0.1 && < 0.5,
+                 array      >= 0.1 && < 0.4
   ghc-options: -Wall
 
   if impl(ghc >= 6.11) {
