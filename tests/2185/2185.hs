@@ -1,4 +1,4 @@
-{-# LANGUAGE BangPatterns,TypeSynonymInstances #-}
+{-# LANGUAGE BangPatterns,FlexibleInstances #-}
 {-# OPTIONS_GHC -funbox-strict-fields #-}
 module Main (main) where
 
