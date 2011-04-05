@@ -130,7 +130,12 @@ module Control.Parallel.Strategies (
     seqTraverse, parTraverse,
     seqList,
     seqPair, parPair,
-    seqTriple, parTriple
+    seqTriple, parTriple,
+
+    -- * For API completeness
+
+    -- | so users of 'rdeepseq' aren't required to import Control.DeepSeq:
+    NFData
   ) where
 
 import Data.Traversable
