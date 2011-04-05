@@ -1,3 +1,4 @@
+{-# LANGUAGE MagicHash #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Control.Parallel.Strategies
@@ -140,6 +141,8 @@ import Control.Monad
 
 import qualified Control.Seq
 
+import GHC.Exts (lazy, par#)
+
 infixr 9 `dot`     -- same as (.)
 infixl 0 `using`   -- lowest precedence and associate to the left
 
@@ -187,7 +190,9 @@ runEval (Done x) = x
 
 instance Monad Eval where
   return x = Done x
-  Done x >>= k = k x   -- Note: pattern 'Done x' makes '>>=' strict
+  Done x >>= k = lazy (k x)   -- Note: pattern 'Done x' makes '>>=' strict
+
+{-# RULES "lazy Done" forall x . lazy (Done x) = Done x #-}
 
 instance Functor Eval where
   fmap = liftM
@@ -315,7 +320,7 @@ r0 x = return x
 -- > rseq == evalSeq Control.Seq.rseq
 --
 rseq :: Strategy a
-rseq x = x `pseq` return x
+rseq x = x `seq` return x
 
 -- Proof of rseq == evalSeq Control.Seq.rseq
 --
@@ -342,9 +347,9 @@ rdeepseq x = rnf x `pseq` return x
 -- == rdeepseq
 
 -- | 'rpar' sparks its argument (for evaluation in parallel).
-rpar :: Strategy a
-rpar x = x `par` return x
-
+rpar :: a -> Eval a
+rpar  x = case (par# x) of { _ -> Done x }
+{-# INLINE rpar  #-}
 
 -- --------------------------------------------------------------------------
 -- Strategy combinators for Traversable data types
