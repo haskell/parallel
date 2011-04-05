@@ -353,15 +353,12 @@ rpar x = x `par` return x
 -- according to the given strategy.
 evalTraversable :: Traversable t => Strategy a -> Strategy (t a)
 evalTraversable = traverse
+{-# INLINE evalTraversable #-}
 
 -- | Like 'evalTraversable' but evaluates all elements in parallel.
 parTraversable :: Traversable t => Strategy a -> Strategy (t a)
 parTraversable strat = evalTraversable (rpar `dot` strat)
-
-{-# SPECIALISE evalTraversable :: Strategy a -> Strategy (Maybe a) #-}
-{-# SPECIALISE parTraversable :: Strategy a -> Strategy (Maybe a) #-}
-{-# SPECIALISE evalTraversable :: Strategy a -> Strategy [a] #-}
-{-# SPECIALISE parTraversable :: Strategy a -> Strategy [a] #-}
+{-# INLINE parTraversable #-}
 
 -- --------------------------------------------------------------------------
 -- Strategies for lists
