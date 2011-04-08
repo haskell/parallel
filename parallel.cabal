@@ -11,8 +11,8 @@ build-type:     Simple
 cabal-version:  >=1.6
 
 source-repository head
-    type:     darcs
-    location: http://darcs.haskell.org/packages/parallel/
+    type:     git
+    location: http://darcs.haskell.org/packages/parallel.git/
 
 library {
   exposed-modules:
