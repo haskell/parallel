@@ -428,9 +428,13 @@ parListNth n strat = evalListNth n (rpar `dot` strat)
 -- It is expected that this function will be replaced by a more
 -- generic clustering infrastructure in the future.
 --
+-- If the chunk size is 1 or less, 'parListChunk' is equivalent to
+-- 'parList'
+--
 parListChunk :: Int -> Strategy a -> Strategy [a]
-parListChunk n strat xs =
-  concat `fmap` parList (evalList strat) (chunk n xs)
+parListChunk n strat xs
+  | n <= 1    = parList strat xs
+  | otherwise = concat `fmap` parList (evalList strat) (chunk n xs)
 
 chunk :: Int -> [a] -> [[a]]
 chunk _ [] = []
