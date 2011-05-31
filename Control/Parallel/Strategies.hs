@@ -463,7 +463,7 @@ parListWHNF xs = go xs `pseq` return xs
 
 -- | A combination of 'parList' and 'map', encapsulating a common pattern:
 --
--- > parMap strat f = withStrategy strat . map f
+-- > parMap strat f = withStrategy (parList strat) . map f
 --
 parMap :: Strategy b -> (a -> b) -> [a] -> [b]
 parMap strat f = (`using` parList strat) . map f 
