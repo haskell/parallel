@@ -1,4 +1,4 @@
-{-# LANGUAGE MagicHash #-}
+{-# LANGUAGE MagicHash, UnboxedTuples #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Control.Parallel.Strategies
@@ -111,7 +111,7 @@ module Control.Parallel.Strategies (
        , (-||)
 
          -- * For Strategy programmers
-       , Eval(Done)        -- instances: Monad, Functor, Applicative
+       , Eval              -- instances: Monad, Functor, Applicative
        , runEval           -- :: Eval a -> a
        ,
 
@@ -146,7 +146,7 @@ import Control.Monad
 
 import qualified Control.Seq
 
-import GHC.Exts (lazy, par#)
+import GHC.Exts
 
 infixr 9 `dot`     -- same as (.)
 infixl 0 `using`   -- lowest precedence and associate to the left
@@ -187,17 +187,17 @@ infixl 0 `using`   -- lowest precedence and associate to the left
 -- > evalPair f g (a,b) = pure (,) <$> f a <*> g b
 --
 
-data Eval a = Done a
+newtype Eval a = Eval (State# RealWorld -> (# State# RealWorld, a #))
 
 -- | Pull the result out of the monad.
 runEval :: Eval a -> a
-runEval (Done x) = x
+runEval (Eval x) = case x realWorld# of (# _, a #) -> a
 
 instance Monad Eval where
-  return x = Done x
-  Done x >>= k = lazy (k x)   -- Note: pattern 'Done x' makes '>>=' strict
-
-{-# RULES "lazy Done" forall x . lazy (Done x) = Done x #-}
+  return x = Eval $ \s -> (# s, x #)
+  Eval x >>= k = Eval $ \s -> case x s of
+                                (# s', a #) -> case lazy (k a) of
+                                                      Eval f -> f s'
 
 instance Functor Eval where
   fmap = liftM
@@ -325,7 +325,7 @@ r0 x = return x
 -- > rseq == evalSeq Control.Seq.rseq
 --
 rseq :: Strategy a
-rseq x = x `seq` return x
+rseq x = Eval $ \s -> seq# x s
 
 -- Proof of rseq == evalSeq Control.Seq.rseq
 --
@@ -340,7 +340,7 @@ rseq x = x `seq` return x
 -- > rdeepseq == evalSeq Control.Seq.rdeepseq
 --
 rdeepseq :: NFData a => Strategy a
-rdeepseq x = rnf x `pseq` return x
+rdeepseq x = do rseq (rnf x); return x
 
 -- Proof of rdeepseq == evalSeq Control.Seq.rdeepseq
 --
@@ -353,7 +353,7 @@ rdeepseq x = rnf x `pseq` return x
 
 -- | 'rpar' sparks its argument (for evaluation in parallel).
 rpar :: a -> Eval a
-rpar  x = case (par# x) of { _ -> Done x }
+rpar  x = Eval $ \s -> spark# x s
 {-# INLINE rpar  #-}
 
 -- --------------------------------------------------------------------------
