@@ -21,7 +21,7 @@ library {
         Control.Parallel.Strategies
   extensions:	CPP BangPatterns
   build-depends: base    >= 3 && < 5,
-                 deepseq >= 1.1 && < 1.2,
+                 deepseq >= 1.1 && < 1.3,
                  containers >= 0.1 && < 0.5,
                  array      >= 0.1 && < 0.4
   ghc-options: -Wall
