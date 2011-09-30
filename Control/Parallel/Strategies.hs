@@ -50,6 +50,7 @@ module Control.Parallel.Strategies (
        , rseq
        , rdeepseq          -- :: NFData a => Strategy a
        , rpar              -- :: Strategy a
+       , rparWith          -- :: Strategy a -> Strategy a
 
          -- * Injection of sequential strategies
        , evalSeq           -- :: Seq.Strategy a -> Strategy a
@@ -356,6 +357,24 @@ rpar :: a -> Eval a
 rpar  x = Eval $ \s -> spark# x s
 {-# INLINE rpar  #-}
 
+-- | instead of saying @rpar `dot` strat@, you can say
+-- @rparWith strat@.  Compared to 'rpar', 'rparWith'
+--
+--  * does not exit the `Eval` monad
+--
+--  * does not have a built-in `rseq`, so for example `rparWith r0`
+--    behaves as you might expect (it is a strategy that creates a
+--    spark that does no evaluation).
+--
+--
+rparWith :: Strategy a -> Strategy a
+rparWith s a = do l <- rpar r; return (case l of Lift x -> x)
+  where r = case s a of
+              Eval f -> case f realWorld# of
+                          (# _, a' #) -> Lift a'
+
+data Lift a = Lift a
+
 -- --------------------------------------------------------------------------
 -- Strategy combinators for Traversable data types
 
@@ -367,7 +386,7 @@ evalTraversable = traverse
 
 -- | Like 'evalTraversable' but evaluates all elements in parallel.
 parTraversable :: Traversable t => Strategy a -> Strategy (t a)
-parTraversable strat = evalTraversable (rpar `dot` strat)
+parTraversable strat = evalTraversable (rparWith strat)
 {-# INLINE parTraversable #-}
 
 -- --------------------------------------------------------------------------
@@ -388,7 +407,7 @@ evalList = evalTraversable
 parList :: Strategy a -> Strategy [a]
 parList = parTraversable
 -- Alternative definition via evalList:
--- parList strat = evalList (rpar `dot` strat)
+-- parList strat = evalList (rparWith strat)
 
 -- | @'evaListSplitAt' n stratPref stratSuff@ evaluates the prefix
 -- (of length @n@) of a list according to @stratPref@ and its the suffix
@@ -402,7 +421,7 @@ evalListSplitAt n stratPref stratSuff xs
 
 -- | Like 'evalListSplitAt' but evaluates both sublists in parallel.
 parListSplitAt :: Int -> Strategy [a] -> Strategy [a] -> Strategy [a]
-parListSplitAt n stratPref stratSuff = evalListSplitAt n (rpar `dot` stratPref) (rpar `dot` stratSuff)
+parListSplitAt n stratPref stratSuff = evalListSplitAt n (rparWith stratPref) (rparWith stratSuff)
 
 -- | Evaluate the first n elements of a list according to the given strategy.
 evalListN :: Int -> Strategy a -> Strategy [a]
@@ -410,7 +429,7 @@ evalListN n strat = evalListSplitAt n (evalList strat) r0
 
 -- | Like 'evalListN' but evaluates the first n elements in parallel.
 parListN :: Int -> Strategy a -> Strategy [a]
-parListN n strat = evalListN n (rpar `dot` strat)
+parListN n strat = evalListN n (rparWith strat)
 
 -- | Evaluate the nth element of a list (if there is such) according to
 -- the given strategy.
@@ -420,7 +439,7 @@ evalListNth n strat = evalListSplitAt n r0 (evalListN 1 strat)
 
 -- | Like 'evalListN' but evaluates the nth element in parallel.
 parListNth :: Int -> Strategy a -> Strategy [a]
-parListNth n strat = evalListNth n (rpar `dot` strat)
+parListNth n strat = evalListNth n (rparWith strat)
 
 -- | Divides a list into chunks, and applies the strategy
 -- @'evalList' strat@ to each chunk in parallel.
@@ -516,7 +535,7 @@ parBufferWHNF n0 xs0 = return (ret xs0 (start n0 xs0))
 parBuffer :: Int -> Strategy a -> Strategy [a]
 parBuffer n strat = parBufferWHNF n . map (withStrategy strat)
 -- Alternative definition via evalBuffer (may compromise firing of RULES):
--- parBuffer n strat = evalBuffer n (rpar `dot` strat)
+-- parBuffer n strat = evalBuffer n (rparWith strat)
 
 -- Deforest the intermediate list in parBuffer/evalBuffer when it is
 -- unnecessary:
@@ -563,35 +582,35 @@ evalTuple9 strat1 strat2 strat3 strat4 strat5 strat6 strat7 strat8 strat9 (x1,x2
 
 parTuple2 :: Strategy a -> Strategy b -> Strategy (a,b)
 parTuple2 strat1 strat2 =
-  evalTuple2 (rpar `dot` strat1) (rpar `dot` strat2)
+  evalTuple2 (rparWith strat1) (rparWith strat2)
 
 parTuple3 :: Strategy a -> Strategy b -> Strategy c -> Strategy (a,b,c)
 parTuple3 strat1 strat2 strat3 =
-  evalTuple3 (rpar `dot` strat1) (rpar `dot` strat2) (rpar `dot` strat3)
+  evalTuple3 (rparWith strat1) (rparWith strat2) (rparWith strat3)
 
 parTuple4 :: Strategy a -> Strategy b -> Strategy c -> Strategy d -> Strategy (a,b,c,d)
 parTuple4 strat1 strat2 strat3 strat4 =
-  evalTuple4 (rpar `dot` strat1) (rpar `dot` strat2) (rpar `dot` strat3) (rpar `dot` strat4)
+  evalTuple4 (rparWith strat1) (rparWith strat2) (rparWith strat3) (rparWith strat4)
 
 parTuple5 :: Strategy a -> Strategy b -> Strategy c -> Strategy d -> Strategy e -> Strategy (a,b,c,d,e)
 parTuple5 strat1 strat2 strat3 strat4 strat5 =
-  evalTuple5 (rpar `dot` strat1) (rpar `dot` strat2) (rpar `dot` strat3) (rpar `dot` strat4) (rpar `dot` strat5)
+  evalTuple5 (rparWith strat1) (rparWith strat2) (rparWith strat3) (rparWith strat4) (rparWith strat5)
 
 parTuple6 :: Strategy a -> Strategy b -> Strategy c -> Strategy d -> Strategy e -> Strategy f -> Strategy (a,b,c,d,e,f)
 parTuple6 strat1 strat2 strat3 strat4 strat5 strat6 =
-  evalTuple6 (rpar `dot` strat1) (rpar `dot` strat2) (rpar `dot` strat3) (rpar `dot` strat4) (rpar `dot` strat5) (rpar `dot` strat6)
+  evalTuple6 (rparWith strat1) (rparWith strat2) (rparWith strat3) (rparWith strat4) (rparWith strat5) (rparWith strat6)
 
 parTuple7 :: Strategy a -> Strategy b -> Strategy c -> Strategy d -> Strategy e -> Strategy f -> Strategy g -> Strategy (a,b,c,d,e,f,g)
 parTuple7 strat1 strat2 strat3 strat4 strat5 strat6 strat7 =
-  evalTuple7 (rpar `dot` strat1) (rpar `dot` strat2) (rpar `dot` strat3) (rpar `dot` strat4) (rpar `dot` strat5) (rpar `dot` strat6) (rpar `dot` strat7)
+  evalTuple7 (rparWith strat1) (rparWith strat2) (rparWith strat3) (rparWith strat4) (rparWith strat5) (rparWith strat6) (rparWith strat7)
 
 parTuple8 :: Strategy a -> Strategy b -> Strategy c -> Strategy d -> Strategy e -> Strategy f -> Strategy g -> Strategy h -> Strategy (a,b,c,d,e,f,g,h)
 parTuple8 strat1 strat2 strat3 strat4 strat5 strat6 strat7 strat8 =
-  evalTuple8 (rpar `dot` strat1) (rpar `dot` strat2) (rpar `dot` strat3) (rpar `dot` strat4) (rpar `dot` strat5) (rpar `dot` strat6) (rpar `dot` strat7) (rpar `dot` strat8)
+  evalTuple8 (rparWith strat1) (rparWith strat2) (rparWith strat3) (rparWith strat4) (rparWith strat5) (rparWith strat6) (rparWith strat7) (rparWith strat8)
 
 parTuple9 :: Strategy a -> Strategy b -> Strategy c -> Strategy d -> Strategy e -> Strategy f -> Strategy g -> Strategy h -> Strategy i -> Strategy (a,b,c,d,e,f,g,h,i)
 parTuple9 strat1 strat2 strat3 strat4 strat5 strat6 strat7 strat8 strat9 =
-  evalTuple9 (rpar `dot` strat1) (rpar `dot` strat2) (rpar `dot` strat3) (rpar `dot` strat4) (rpar `dot` strat5) (rpar `dot` strat6) (rpar `dot` strat7) (rpar `dot` strat8) (rpar `dot` strat9)
+  evalTuple9 (rparWith strat1) (rparWith strat2) (rparWith strat3) (rparWith strat4) (rparWith strat5) (rparWith strat6) (rparWith strat7) (rparWith strat8) (rparWith strat9)
 
 -- --------------------------------------------------------------------------
 -- Strategic function application
