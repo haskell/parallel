@@ -188,7 +188,12 @@ infixl 0 `using`   -- lowest precedence and associate to the left
 -- > evalPair f g (a,b) = pure (,) <$> f a <*> g b
 --
 
+#if __GLASGOW_HASKELL__ >= 702
+
 newtype Eval a = Eval (State# RealWorld -> (# State# RealWorld, a #))
+  -- GHC 7.2.1 added the seq# and spark# primitives, that we use in
+  -- the Eval monad implementation in order to get the correct
+  -- strictness behaviour.
 
 -- | Pull the result out of the monad.
 runEval :: Eval a -> a
@@ -199,6 +204,22 @@ instance Monad Eval where
   Eval x >>= k = Eval $ \s -> case x s of
                                 (# s', a #) -> case lazy (k a) of
                                                       Eval f -> f s'
+#else
+
+data Eval a = Done a
+
+-- | Pull the result out of the monad.
+runEval :: Eval a -> a
+runEval (Done x) = x
+
+instance Monad Eval where
+  return x = Done x
+  Done x >>= k = lazy (k x)   -- Note: pattern 'Done x' makes '>>=' strict
+
+{-# RULES "lazy Done" forall x . lazy (Done x) = Done x #-}
+
+#endif
+
 
 instance Functor Eval where
   fmap = liftM
@@ -326,7 +347,11 @@ r0 x = return x
 -- > rseq == evalSeq Control.Seq.rseq
 --
 rseq :: Strategy a
+#if __GLASGOW_HASKELL__ >= 702
 rseq x = Eval $ \s -> seq# x s
+#else
+rseq x = x `seq` return x
+#endif
 
 -- Proof of rseq == evalSeq Control.Seq.rseq
 --
@@ -354,7 +379,11 @@ rdeepseq x = do rseq (rnf x); return x
 
 -- | 'rpar' sparks its argument (for evaluation in parallel).
 rpar :: a -> Eval a
+#if __GLASGOW_HASKELL__ >= 702
 rpar  x = Eval $ \s -> spark# x s
+#else
+rpar  x = case (par# x) of { _ -> Done x }
+#endif
 {-# INLINE rpar  #-}
 
 -- | instead of saying @rpar `dot` strat@, you can say
@@ -368,12 +397,16 @@ rpar  x = Eval $ \s -> spark# x s
 --
 --
 rparWith :: Strategy a -> Strategy a
+#if __GLASGOW_HASKELL__ >= 702
 rparWith s a = do l <- rpar r; return (case l of Lift x -> x)
   where r = case s a of
               Eval f -> case f realWorld# of
                           (# _, a' #) -> Lift a'
 
 data Lift a = Lift a
+#else
+rparWith s a = do l <- rpar (s a); return (case l of Done x -> x)
+#endif
 
 -- --------------------------------------------------------------------------
 -- Strategy combinators for Traversable data types
