@@ -202,7 +202,7 @@ runEval (Eval x) = case x realWorld# of (# _, a #) -> a
 instance Monad Eval where
   return x = Eval $ \s -> (# s, x #)
   Eval x >>= k = Eval $ \s -> case x s of
-                                (# s', a #) -> case lazy (k a) of
+                                (# s', a #) -> case k a of
                                                       Eval f -> f s'
 #else
 
