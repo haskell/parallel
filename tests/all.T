@@ -5,4 +5,4 @@ test('par002', only_ways(['threaded2']),
                 compile_and_run, ['-O0 -package parallel'])
 
 
-test('par003', normal, run_command, ['$MAKE -s --no-print-directory par003'])
+test('par003', req_smp, run_command, ['$MAKE -s --no-print-directory par003'])
