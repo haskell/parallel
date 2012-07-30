@@ -506,7 +506,8 @@ parListWHNF xs = go xs `pseq` return xs
 -- The non-compositional 'parListWHNF' might be more efficient than its
 -- more compositional counterpart; use RULES to do the specialisation.
 
-{-# RULES 
+{-# NOINLINE [1] parList #-}
+{-# RULES
  "parList/rseq" parList rseq = parListWHNF
  #-}
 
@@ -573,7 +574,9 @@ parBuffer n strat = parBufferWHNF n . map (withStrategy strat)
 -- Deforest the intermediate list in parBuffer/evalBuffer when it is
 -- unnecessary:
 
-{-# RULES 
+{-# NOINLINE [1] evalBuffer #-}
+{-# NOINLINE [1] parBuffer #-}
+{-# RULES
 "evalBuffer/rseq"  forall n . evalBuffer  n rseq = evalBufferWHNF n
 "parBuffer/rseq"   forall n . parBuffer   n rseq = parBufferWHNF  n
  #-}
