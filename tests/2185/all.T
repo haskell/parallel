@@ -1,4 +1,4 @@
-test('2185', [skip_if_fast, reqlib('parallel'), 
+test('2185', [when(fast(), skip), reqlib('parallel'), 
               extra_run_opts('+RTS -M16m -RTS'),
               only_ways(['threaded1','threaded2'])], 
         # threaded1 demonstrates the bug: sparks were treated as roots by GC
