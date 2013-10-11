@@ -23,7 +23,7 @@ library {
   build-depends: base    >= 3 && < 5,
                  deepseq >= 1.1 && < 1.4,
                  containers >= 0.1 && < 0.6,
-                 array      >= 0.1 && < 0.5
+                 array      >= 0.1 && < 0.6
   ghc-options: -Wall
 
   if impl(ghc >= 6.11) {
