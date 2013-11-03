@@ -1,33 +1,47 @@
-name:		parallel
-version:        3.2.0.3
-license:	BSD3
-license-file:	LICENSE
-maintainer:	libraries@haskell.org
-synopsis:	Parallel programming library
+name:           parallel
+version:        3.2.0.4
+license:        BSD3
+license-file:   LICENSE
+maintainer:     libraries@haskell.org
+synopsis:       Parallel programming library
+category:       Control, Parallelism
+build-type:     Simple
+cabal-version:  >=1.10
+tested-with:    GHC==7.6.3, GHC==7.6.2, GHC==7.6.1, GHC==7.4.2, GHC==7.4.1, GHC==7.2.2, GHC==7.2.1, GHC==7.0.4, GHC==7.0.3, GHC==7.0.2, GHC==7.0.1
 description:
     This package provides a library for parallel programming.
-category:       Control
-build-type:     Simple
-cabal-version:  >=1.6
 
 source-repository head
     type:     git
     location: http://git.haskell.org/packages/parallel.git
 
-library {
-  exposed-modules:
+source-repository this
+    type:     git
+    location: http://git.haskell.org/packages/parallel.git
+    tag:      parallel-3.2.0.4-release
+
+library
+    default-language: Haskell2010
+    other-extensions:
+        BangPatterns
+        CPP
+        FlexibleInstances
+        MagicHash
+        UnboxedTuples
+
+    exposed-modules:
         Control.Seq
         Control.Parallel
         Control.Parallel.Strategies
-  extensions:	CPP BangPatterns
-  build-depends: base    >= 3 && < 5,
-                 deepseq >= 1.1 && < 1.4,
-                 containers >= 0.1 && < 0.6,
-                 array      >= 0.1 && < 0.6
-  ghc-options: -Wall
 
-  if impl(ghc >= 6.11) {
-    -- To improve parallel performance:
-    ghc-options: -feager-blackholing
-  }
-}
+    build-depends:
+        array      >= 0.3 && < 0.6,
+        base       >= 4.3 && < 4.8,
+        containers >= 0.4 && < 0.6,
+        deepseq    >= 1.1 && < 1.4
+
+    ghc-options: -Wall
+
+    if impl(ghc >= 6.11)
+        -- To improve parallel performance:
+        ghc-options: -feager-blackholing
