@@ -5,7 +5,7 @@
 -- Module      :  Control.Parallel
 -- Copyright   :  (c) The University of Glasgow 2001
 -- License     :  BSD-style (see the file libraries/base/LICENSE)
--- 
+--
 -- Maintainer  :  libraries@haskell.org
 -- Stability   :  stable
 -- Portability :  portable
@@ -19,7 +19,7 @@ module Control.Parallel (
     ) where
 
 #ifdef __GLASGOW_HASKELL__
-import qualified GHC.Conc	( par, pseq )
+import qualified GHC.Conc       ( par, pseq )
 
 infixr 0 `par`, `pseq`
 #endif
@@ -29,7 +29,7 @@ infixr 0 `par`, `pseq`
 -- | Indicates that it may be beneficial to evaluate the first
 -- argument in parallel with the second.  Returns the value of the
 -- second argument.
--- 
+--
 -- @a ``par`` b@ is exactly equivalent semantically to @b@.
 --
 -- @par@ is generally used when the value of @a@ is likely to be

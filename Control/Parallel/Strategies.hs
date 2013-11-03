@@ -4,7 +4,7 @@
 -- Module      :  Control.Parallel.Strategies
 -- Copyright   :  (c) The University of Glasgow 2001-2010
 -- License     :  BSD-style (see the file libraries/base/LICENSE)
--- 
+--
 -- Maintainer  :  libraries@haskell.org
 -- Stability   :  experimental
 -- Portability :  portable
@@ -29,7 +29,7 @@
 --
 --  * 'Monad' and 'Applicative' instances are provided, for quickly building
 --    strategies that involve traversing structures in a regular way.
--- 
+--
 -- For API history and changes in this release, see "Control.Parallel.Strategies#history".
 
 -----------------------------------------------------------------------------
@@ -121,7 +121,7 @@ module Control.Parallel.Strategies (
     -- $history
 
     -- * Backwards compatibility
-    
+
     -- | These functions and types are all deprecated, and will be
     -- removed in a future release.  In all cases they have been
     -- either renamed or replaced with equivalent functionality.
@@ -156,7 +156,7 @@ infixl 0 `using`   -- lowest precedence and associate to the left
 -- Eval monad (isomorphic to Lift monad from MonadLib 3.6.1)
 
 -- | 'Eval' is a Monad that makes it easier to define parallel
--- strategies.  It is a strict identity monad: that is, in 
+-- strategies.  It is a strict identity monad: that is, in
 --
 --  > m >>= f
 --
@@ -258,7 +258,7 @@ instance Applicative Eval where
 -- | A 'Strategy' is a function that embodies a parallel evaluation strategy.
 -- The function traverses (parts of) its argument, evaluating subexpressions
 -- in parallel or in sequence.
--- 
+--
 -- A 'Strategy' may do an arbitrary amount of evaluation of its
 -- argument, but should not return a value different from the one it
 -- was passed.
@@ -269,7 +269,7 @@ instance Applicative Eval where
 -- intention is that the program applies the 'Strategy' to a
 -- structure, and then uses the returned value, discarding the old
 -- value.  This idiom is expressed by the 'using' function.
--- 
+--
 type Strategy a = a -> Eval a
 
 -- | Evaluate a value using the given 'Strategy'.
@@ -281,11 +281,11 @@ x `using` strat = runEval (strat x)
 
 -- | evaluate a value using the given 'Strategy'.  This is simply
 -- 'using' with the arguments reversed.
--- 
+--
 withStrategy :: Strategy a -> a -> a
 withStrategy = flip using
 
--- | Compose two strategies sequentially. 
+-- | Compose two strategies sequentially.
 -- This is the analogue to function composition on strategies.
 --
 -- > strat2 `dot` strat1 == strat2 . withStrategy strat1
@@ -411,7 +411,7 @@ rparWith s a = do l <- rpar (s a); return (case l of Done x -> x)
 -- --------------------------------------------------------------------------
 -- Strategy combinators for Traversable data types
 
--- | Evaluate the elements of a traversable data structure 
+-- | Evaluate the elements of a traversable data structure
 -- according to the given strategy.
 evalTraversable :: Traversable t => Strategy a -> Strategy (t a)
 evalTraversable = traverse
@@ -519,7 +519,7 @@ parListWHNF xs = go xs `pseq` return xs
 -- > parMap strat f = withStrategy (parList strat) . map f
 --
 parMap :: Strategy b -> (a -> b) -> [a] -> [b]
-parMap strat f = (`using` parList strat) . map f 
+parMap strat f = (`using` parList strat) . map f
 
 -- --------------------------------------------------------------------------
 -- Strategies for lazy lists
@@ -543,7 +543,7 @@ evalBufferWHNF n0 xs0 = return (ret xs0 (start n0 xs0))
 -- 'evalBuffer' is not as compositional as the type suggests. In fact,
 -- it evaluates list elements at least to weak head normal form,
 -- disregarding a strategy argument 'r0'.
--- 
+--
 -- > evalBuffer n r0 == evalBuffer n rseq
 --
 evalBuffer :: Int -> Strategy a -> Strategy [a]
@@ -669,34 +669,34 @@ f $| s  = \ x -> let z = x `using` s in z `pseq` f z
 f $|| s = \ x -> let z = x `using` s in z `par` f z
 
 -- | Sequential function composition. The result of
--- the second function is evaluated using the given strategy, 
+-- the second function is evaluated using the given strategy,
 -- and then given to the first function.
 (.|) :: (b -> c) -> Strategy b -> (a -> b) -> (a -> c)
-(.|) f s g = \ x -> let z = g x `using` s in 
+(.|) f s g = \ x -> let z = g x `using` s in
                     z `pseq` f z
 
 -- | Parallel function composition. The result of the second
 -- function is evaluated using the given strategy,
 -- in parallel with the application of the first function.
 (.||) :: (b -> c) -> Strategy b -> (a -> b) -> (a -> c)
-(.||) f s g = \ x -> let z = g x `using` s in 
+(.||) f s g = \ x -> let z = g x `using` s in
                     z `par` f z
 
--- | Sequential inverse function composition, 
+-- | Sequential inverse function composition,
 -- for those who read their programs from left to right.
--- The result of the first function is evaluated using the 
+-- The result of the first function is evaluated using the
 -- given strategy, and then given to the second function.
 (-|) :: (a -> b) -> Strategy b -> (b -> c) -> (a -> c)
-(-|) f s g = \ x -> let z = f x `using` s in 
+(-|) f s g = \ x -> let z = f x `using` s in
                     z `pseq` g z
 
 -- | Parallel inverse function composition,
 -- for those who read their programs from left to right.
--- The result of the first function is evaluated using the 
--- given strategy, in parallel with the application of the 
+-- The result of the first function is evaluated using the
+-- given strategy, in parallel with the application of the
 -- second function.
 (-||) :: (a -> b) -> Strategy b -> (b -> c) -> (a -> c)
-(-||) f s g = \ x -> let z = f x `using` s in 
+(-||) f s g = \ x -> let z = f x `using` s in
                     z `par` g z
 
 -- -----------------------------------------------------------------------------
@@ -718,12 +718,12 @@ sparking  = flip par
 
 {-# DEPRECATED (>|) "Use pseq or $| instead" #-}
 -- | DEPRECATED: Use 'pseq' or '$|' instead
-(>|) :: Done -> Done -> Done 
+(>|) :: Done -> Done -> Done
 (>|) = Prelude.seq
 
 {-# DEPRECATED (>||) "Use par or $|| instead" #-}
 -- | DEPRECATED: Use 'par' or '$||' instead
-(>||) :: Done -> Done -> Done 
+(>||) :: Done -> Done -> Done
 (>||) = par
 
 {-# DEPRECATED rwhnf "renamed to rseq" #-}
@@ -784,7 +784,7 @@ Version 1.x
 
   The original Strategies design is described in /Algorithm + Strategy = Parallelism/ <http://www.macs.hw.ac.uk/~dsg/gph/papers/html/Strategies/strategies.html>
   and the code was written by
-     Phil Trinder, Hans-Wolfgang Loidl, Kevin Hammond et al. 
+     Phil Trinder, Hans-Wolfgang Loidl, Kevin Hammond et al.
 
 Version 2.x
 
@@ -848,7 +848,7 @@ simpler version would fix that problem.
 (version 2.3 was not released on Hackage).
 
 Version 3 introduced a major overhaul of the API, to match what is
-presented in the paper 
+presented in the paper
 
   /Seq no More: Better Strategies for Parallel Haskell/
   <http://www.haskell.org/~simonmar/papers/strategies.pdf>
@@ -860,14 +860,14 @@ The major differenes in the API are:
 
  * Changes to the naming scheme: 'rwhnf' renamed to 'rseq',
    'seqList' renamed to 'evalList', 'seqPair' renamed to
-   'evalTuple2', 
+   'evalTuple2',
 
 The naming scheme is now as follows:
 
   * Basic polymorphic strategies (of type @'Strategy' a@) are called @r...@.
     Examples: 'r0', 'rseq', 'rpar', 'rdeepseq'.
 
-  * A strategy combinator for a particular type constructor 
+  * A strategy combinator for a particular type constructor
     or constructor class @T@ is called @evalT...@, @parT...@ or @seqT...@.
 
   * The @seqT...@ combinators (residing in module
@@ -891,4 +891,3 @@ The naming scheme is now as follows:
      'parBuffer', which are not named after their type constructor (lists)
      but after their function (rolling buffer of fixed size).
 -}
-
