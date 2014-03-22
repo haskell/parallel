@@ -114,6 +114,7 @@ module Control.Parallel.Strategies (
          -- * For Strategy programmers
        , Eval              -- instances: Monad, Functor, Applicative
        , runEval           -- :: Eval a -> a
+       , parEval           -- :: Eval a -> Eval a
        ,
 
     -- * API History
@@ -222,6 +223,13 @@ instance Monad Eval where
 
 #endif
 
+-- | 'parEval' sparks the evaluation of its argument (for evaluation in
+-- parallel).
+--
+-- > parEval x = rpar (runEval x)
+--
+parEval :: Eval a -> Eval a
+parEval x = rpar (runEval x)
 
 instance Functor Eval where
   fmap = liftM
