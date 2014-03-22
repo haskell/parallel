@@ -41,6 +41,10 @@ module Control.Parallel.Strategies (
          -- * Application of strategies
        , using             -- :: a -> Strategy a -> a
        , withStrategy      -- :: Strategy a -> a -> a
+#if __GLASGOW_HASKELL__ >= 702
+       , usingIO           -- :: a -> Strategy a -> IO a
+       , withStrategyIO    -- :: Strategy a -> a -> IO a
+#endif
 
          -- * Composition of strategies
        , dot               -- :: Strategy a -> Strategy a -> Strategy a
@@ -114,6 +118,9 @@ module Control.Parallel.Strategies (
          -- * For Strategy programmers
        , Eval              -- instances: Monad, Functor, Applicative
        , runEval           -- :: Eval a -> a
+#if __GLASGOW_HASKELL__ >= 702
+       , runEvalIO         -- :: Eval a -> IO a
+#endif
        ,
 
     -- * API History
@@ -151,8 +158,15 @@ import qualified Control.Seq
 
 import GHC.Exts
 
+#if __GLASGOW_HASKELL__ >= 702
+import GHC.Types (IO(..)) -- needed for runEvalIO
+#endif
+
 infixr 9 `dot`     -- same as (.)
 infixl 0 `using`   -- lowest precedence and associate to the left
+#if __GLASGOW_HASKELL__ >= 702
+infixl 0 `usingIO` -- lowest precedence and associate to the left
+#endif
 
 -- -----------------------------------------------------------------------------
 -- Eval monad (isomorphic to Lift monad from MonadLib 3.6.1)
@@ -206,6 +220,13 @@ instance Monad Eval where
   Eval x >>= k = Eval $ \s -> case x s of
                                 (# s', a #) -> case k a of
                                                       Eval f -> f s'
+
+-- | Run the evaluation in the 'IO' monad. This allows sequencing of
+-- evaluations relative to 'IO' actions.
+--
+-- Only avaiable on GHC >= 7.2.1.
+runEvalIO :: Eval a -> IO a
+runEvalIO (Eval x) = IO x
 #else
 
 data Eval a = Done a
@@ -286,6 +307,28 @@ x `using` strat = runEval (strat x)
 --
 withStrategy :: Strategy a -> a -> a
 withStrategy = flip using
+
+#if __GLASGOW_HASKELL__ >= 702
+
+-- | Evaluate a value using the given 'Strategy' inside the 'IO' monad.  See
+-- also 'runEvalIO'.
+--
+-- > x `usingIO` s = runEvalIO (s x)
+--
+-- Only avaiable on GHC >= 7.2.1
+--
+usingIO :: a -> Strategy a -> IO a
+x `usingIO` strat = runEvalIO (strat x)
+
+-- | Evaluate a value using the given 'Strategy' inside the 'IO' monad.  This
+-- is simply 'usingIO' with the arguments reversed.
+--
+-- Only avaiable on GHC >= 7.2.1
+--
+withStrategyIO :: Strategy a -> a -> IO a
+withStrategyIO = flip usingIO
+
+#endif
 
 -- | Compose two strategies sequentially.
 -- This is the analogue to function composition on strategies.
