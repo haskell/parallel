@@ -12,7 +12,7 @@ tested-with:    GHC==7.6.3, GHC==7.6.2, GHC==7.6.1, GHC==7.4.2, GHC==7.4.1, GHC=
 description:
     This package provides a library for parallel programming.
 
-extra-source-files: changelog
+extra-source-files: changelog.md
 
 source-repository head
     type:     git
