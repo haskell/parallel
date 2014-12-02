@@ -1,15 +1,15 @@
 env:
- - CABALVER=1.16 HCVER=7.0.1
- - CABALVER=1.16 HCVER=7.0.4
- - CABALVER=1.16 HCVER=7.2.2
- - CABALVER=1.16 HCVER=7.4.2
- - CABALVER=1.16 HCVER=7.6.3
- - CABALVER=1.18 HCVER=7.8.3
- - CABALVER=head HCVER=head
+ - CABALVER=1.16 GHCVER=7.0.1
+ - CABALVER=1.16 GHCVER=7.0.4
+ - CABALVER=1.16 GHCVER=7.2.2
+ - CABALVER=1.16 GHCVER=7.4.2
+ - CABALVER=1.16 GHCVER=7.6.3
+ - CABALVER=1.18 GHCVER=7.8.3
+ - CABALVER=head GHCVER=head
 
 matrix:
   allow_failures:
-   - env: CABALVER=head HCVER=head
+   - env: CABALVER=head GHCVER=head
 
 before_install:
  - travis_retry sudo add-apt-repository -y ppa:hvr/ghc
