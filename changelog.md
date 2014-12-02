@@ -1,8 +1,8 @@
 # Changelog for [`parallel` package](http://hackage.haskell.org/package/parallel)
 
-## 3.2.0.5  *TBA*
+## 3.2.0.5  *Dec 2014*
 
-  - Support `base-4.8.0.0`
+  - Support `base-4.8.0.0`/`deepseq-1.4.0.0` (and thus GHC 7.10)
 
 ## 3.2.0.4  *Nov 2013*
 
