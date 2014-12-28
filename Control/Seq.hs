@@ -6,20 +6,20 @@
 -- Module      :  Control.Parallel.SeqStrategies
 -- Copyright   :  (c) The University of Glasgow 2001-2009
 -- License     :  BSD-style (see the file libraries/base/LICENSE)
--- 
+--
 -- Maintainer  :  libraries@haskell.org
 -- Stability   :  experimental
 -- Portability :  portable
--- 
+--
 -- Sequential strategies provide ways to compositionally specify
 -- the degree of evaluation of a data type between the extremes of
 -- no evaluation and full evaluation.
 -- Sequential strategies may be viewed as complimentary to the parallel
 -- ones (see module "Control.Parallel.Strategies").
--- 
+--
 
 module Control.Seq
-       ( 
+       (
          -- * The sequential strategy type
          Strategy
 
@@ -31,7 +31,7 @@ module Control.Seq
        , r0               -- :: Strategy a
        , rseq
        , rdeepseq         -- :: NFData a => Strategy a
-         
+
          -- * Sequential strategies for lists
        , seqList          -- :: Strategy a -> Strategy [a]
        , seqListN         -- :: Int -> Strategy a -> Strategy [a]
@@ -84,7 +84,7 @@ type Strategy a = a -> ()
 using :: a -> Strategy a -> a
 x `using` strat = strat x `seq` x
 
--- | Evaluate a value using the given strategy. 
+-- | Evaluate a value using the given strategy.
 -- This is simply 'using' with arguments reversed.
 withStrategy :: Strategy a -> a -> a
 withStrategy = flip using
