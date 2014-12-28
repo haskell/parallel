@@ -139,8 +139,10 @@ module Control.Parallel.Strategies (
     NFData
   ) where
 
+#if !MIN_VERSION_base(4,8,0)
 import Data.Traversable
 import Control.Applicative
+#endif
 import Control.Parallel
 import Control.DeepSeq
 import Control.Monad

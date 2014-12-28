@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -57,9 +58,12 @@ module Control.Seq
        , seqTuple9
        ) where
 
-import Prelude
 import Control.DeepSeq (NFData, deepseq)
+#if MIN_VERSION_base(4,8,0)
+import Data.Foldable (toList)
+#else
 import Data.Foldable (Foldable, toList)
+#endif
 import Data.Map (Map)
 import qualified Data.Map (toList)
 import Data.Ix (Ix)

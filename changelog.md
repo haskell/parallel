@@ -1,5 +1,9 @@
 # Changelog for [`parallel` package](http://hackage.haskell.org/package/parallel)
 
+## 3.2.0.6  *Dec 2014*
+
+  - Make `-Wall` message free for all supported `base` versions
+
 ## 3.2.0.5  *Dec 2014*
 
   - Support `base-4.8.0.0`/`deepseq-1.4.0.0` (and thus GHC 7.10)

@@ -1,5 +1,5 @@
 name:           parallel
-version:        3.2.0.5
+version:        3.2.0.6
 -- NOTE: Don't forget to update ./changelog.md
 license:        BSD3
 license-file:   LICENSE
