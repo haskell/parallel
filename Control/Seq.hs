@@ -66,7 +66,6 @@ import Data.Foldable (Foldable, toList)
 #endif
 import Data.Map (Map)
 import qualified Data.Map (toList)
-import Data.Ix (Ix)
 import Data.Array (Array)
 import qualified Data.Array (bounds, elems)
 
