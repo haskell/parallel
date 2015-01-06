@@ -146,11 +146,11 @@ seqFoldable strat = seqList strat . toList
 
 -- | Evaluate the elements of an array according to the given strategy.
 -- Evaluation of the array bounds may be triggered as a side effect.
-seqArray :: Ix i => Strategy a -> Strategy (Array i a)
+seqArray :: Strategy a -> Strategy (Array i a)
 seqArray strat = seqList strat . Data.Array.elems
 
 -- | Evaluate the bounds of an array according to the given strategy.
-seqArrayBounds :: Ix i => Strategy i -> Strategy (Array i a)
+seqArrayBounds :: Strategy i -> Strategy (Array i a)
 seqArrayBounds strat = seqTuple2 strat strat . Data.Array.bounds
 
 -- | Evaluate the keys and values of a map according to the given strategies.
