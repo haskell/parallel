@@ -399,16 +399,7 @@ rpar  x = case (par# x) of { _ -> Done x }
 --
 --
 rparWith :: Strategy a -> Strategy a
-#if __GLASGOW_HASKELL__ >= 702
-rparWith s a = do l <- rpar r; return (case l of Lift x -> x)
-  where r = case s a of
-              Eval f -> case f realWorld# of
-                          (# _, a' #) -> Lift a'
-
-data Lift a = Lift a
-#else
-rparWith s a = do l <- rpar (s a); return (case l of Done x -> x)
-#endif
+rparWith strat = parEval . strat
 
 -- | 'parEval' sparks the evaluation of its argument for evaluation in
 -- parallel. Unlike @ 'rpar' . 'runEval' @ 'parEval'
@@ -428,6 +419,8 @@ parEval :: Eval a -> Eval a
 parEval (Eval f) = do l <- rpar r; return (case l of Lift x -> x)
   where r = case f realWorld# of
               (# _, a' #) -> Lift a'
+
+data Lift a = Lift a
 
 #else
 parEval eval = do l <- rpar eval; return (case l of Done x -> x)
