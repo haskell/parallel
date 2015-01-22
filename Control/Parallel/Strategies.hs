@@ -223,14 +223,6 @@ instance Monad Eval where
 
 #endif
 
--- | 'parEval' sparks the evaluation of its argument (for evaluation in
--- parallel).
---
--- > parEval x = rpar (runEval x)
---
-parEval :: Eval a -> Eval a
-parEval x = rpar (runEval x)
-
 instance Functor Eval where
   fmap = liftM
 
@@ -416,6 +408,29 @@ rparWith s a = do l <- rpar r; return (case l of Lift x -> x)
 data Lift a = Lift a
 #else
 rparWith s a = do l <- rpar (s a); return (case l of Done x -> x)
+#endif
+
+-- | 'parEval' sparks the evaluation of its argument for evaluation in
+-- parallel. Unlike @ 'rpar' . 'runEval' @ 'parEval'
+--
+--  * does not exit the `Eval` monad
+--
+--  * does not have a built-in `rseq`, so for example `parEval (r0 x)`
+--    behaves as you might expect (it creates a spark that does no
+--    evaluation).
+--
+-- It is related to 'rparWith' by the following equality:
+--
+-- > 'parEval' . strat = 'rparWith' strat
+--
+parEval :: Eval a -> Eval a
+#if __GLASGOW_HASKELL__ >= 702
+parEval (Eval f) = do l <- rpar r; return (case l of Lift x -> x)
+  where r = case f realWorld# of
+              (# _, a' #) -> Lift a'
+
+#else
+parEval eval = do l <- rpar eval; return (case l of Done x -> x)
 #endif
 
 -- --------------------------------------------------------------------------
