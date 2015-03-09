@@ -794,7 +794,7 @@ Later, during work on the shared-memory implementation of
 parallelism in GHC, we discovered that the original formulation of
 Strategies had some problems, in particular it lead to space leaks
 and difficulties expressing speculative parallelism.  Details are in
-the paper /Runtime Support for Multicore Haskell/ <http://www.haskell.org/~simonmar/papers/multicore-ghc.pdf>.
+the paper /Runtime Support for Multicore Haskell/ <http://community.haskell.org/~simonmar/papers/multicore-ghc.pdf>.
 
 This module has been rewritten in version 2. The main change is to
 the 'Strategy a' type synonym, which was previously @a -> Done@ and
@@ -853,7 +853,7 @@ Version 3 introduced a major overhaul of the API, to match what is
 presented in the paper
 
   /Seq no More: Better Strategies for Parallel Haskell/
-  <http://www.haskell.org/~simonmar/papers/strategies.pdf>
+  <http://community.haskell.org/~simonmar/papers/strategies.pdf>
 
 The major differenes in the API are:
 
