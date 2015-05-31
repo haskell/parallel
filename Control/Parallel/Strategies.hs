@@ -323,7 +323,7 @@ strat2 `dot` strat1 = strat2 . runEval . strat1
 evalSeq :: SeqStrategy a -> Strategy a
 evalSeq strat x = strat x `pseq` return x
 
--- | a name for @Control.Seq.Strategy@, for documetnation only.
+-- | A name for @Control.Seq.Strategy@, for documentation only.
 type SeqStrategy a = Control.Seq.Strategy a
 
 -- --------------------------------------------------------------------------
