@@ -380,7 +380,7 @@ rdeepseq x = do rseq (rnf x); return x
 -- == rdeepseq
 
 -- | 'rpar' sparks its argument (for evaluation in parallel).
-rpar :: a -> Eval a
+rpar :: Strategy a
 #if __GLASGOW_HASKELL__ >= 702
 rpar  x = Eval $ \s -> spark# x s
 #else
