@@ -509,6 +509,7 @@ parListWHNF xs = go xs `pseq` return xs
 -- more compositional counterpart; use RULES to do the specialisation.
 
 {-# NOINLINE [1] parList #-}
+{-# NOINLINE [1] rseq #-}
 {-# RULES
  "parList/rseq" parList rseq = parListWHNF
  #-}
