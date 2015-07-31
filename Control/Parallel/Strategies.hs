@@ -114,6 +114,7 @@ module Control.Parallel.Strategies (
          -- * For Strategy programmers
        , Eval              -- instances: Monad, Functor, Applicative
        , runEval           -- :: Eval a -> a
+       , parEval           -- :: Eval a -> Eval a
        ,
 
     -- * API History
@@ -221,7 +222,6 @@ instance Monad Eval where
 {-# RULES "lazy Done" forall x . lazy (Done x) = Done x #-}
 
 #endif
-
 
 instance Functor Eval where
   fmap = liftM
@@ -399,15 +399,31 @@ rpar  x = case (par# x) of { _ -> Done x }
 --
 --
 rparWith :: Strategy a -> Strategy a
+rparWith strat = parEval . strat
+
+-- | 'parEval' sparks the evaluation of its argument for evaluation in
+-- parallel. Unlike @ 'rpar' . 'runEval' @ 'parEval'
+--
+--  * does not exit the `Eval` monad
+--
+--  * does not have a built-in `rseq`, so for example `parEval (r0 x)`
+--    behaves as you might expect (it creates a spark that does no
+--    evaluation).
+--
+-- It is related to 'rparWith' by the following equality:
+--
+-- > 'parEval' . strat = 'rparWith' strat
+--
+parEval :: Eval a -> Eval a
 #if __GLASGOW_HASKELL__ >= 702
-rparWith s a = do l <- rpar r; return (case l of Lift x -> x)
-  where r = case s a of
-              Eval f -> case f realWorld# of
-                          (# _, a' #) -> Lift a'
+parEval (Eval f) = do l <- rpar r; return (case l of Lift x -> x)
+  where r = case f realWorld# of
+              (# _, a' #) -> Lift a'
 
 data Lift a = Lift a
+
 #else
-rparWith s a = do l <- rpar (s a); return (case l of Done x -> x)
+parEval eval = do l <- rpar eval; return (case l of Done x -> x)
 #endif
 
 -- --------------------------------------------------------------------------
