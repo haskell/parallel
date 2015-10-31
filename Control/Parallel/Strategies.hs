@@ -201,8 +201,15 @@ newtype Eval a = Eval (State# RealWorld -> (# State# RealWorld, a #))
 runEval :: Eval a -> a
 runEval (Eval x) = case x realWorld# of (# _, a #) -> a
 
+instance Functor Eval where
+  fmap = liftM
+
+instance Applicative Eval where
+  pure x = Eval $ \s -> (# s, x #)
+  (<*>)  = ap
+
 instance Monad Eval where
-  return x = Eval $ \s -> (# s, x #)
+  return = pure
   Eval x >>= k = Eval $ \s -> case x s of
                                 (# s', a #) -> case k a of
                                                       Eval f -> f s'
@@ -214,21 +221,20 @@ data Eval a = Done a
 runEval :: Eval a -> a
 runEval (Done x) = x
 
+instance Functor Eval where
+  fmap = liftM
+
+instance Applicative Eval where
+  pure = Done
+  (<*>) = ap
+
 instance Monad Eval where
-  return x = Done x
+  return = pure
   Done x >>= k = lazy (k x)   -- Note: pattern 'Done x' makes '>>=' strict
 
 {-# RULES "lazy Done" forall x . lazy (Done x) = Done x #-}
 
 #endif
-
-
-instance Functor Eval where
-  fmap = liftM
-
-instance Applicative Eval where
-  (<*>) = ap
-  pure  = return
 
 
 -- The Eval monad satisfies the monad laws.
