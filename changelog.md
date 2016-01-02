@@ -1,9 +1,12 @@
 # Changelog for [`parallel` package](http://hackage.haskell.org/package/parallel)
 
-## 3.2.0.7  *TBA*
+## 3.2.1.0  *Jan 2016*
 
+  - Support `base-4.9.0.0`
   - Add `{-# NOINLINE[1] rseq #-}` to make the `RULE` more robust
-  - Make `rpar`'s type signature consistent with `rseq` & co
+  - Fix broken links to papers in Haddock
+  - Make `rpar` type signature consistent with `rseq` via type-synonym
+  - Drop redundant `Ix`-constraint on `seqArray`/`seqArrayBounds` for GHC >= 8.0
 
 ## 3.2.0.6  *Dec 2014*
 
