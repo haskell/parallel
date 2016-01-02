@@ -24,7 +24,6 @@ library
     other-extensions:
         BangPatterns
         CPP
-        FlexibleInstances
         MagicHash
         UnboxedTuples
 
