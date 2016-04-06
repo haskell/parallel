@@ -474,6 +474,8 @@ parListN n strat = evalListN n (rparWith strat)
 
 -- | Evaluate the nth element of a list (if there is such) according to
 -- the given strategy.
+-- This nth is 0-based. For example, @[1, 2, 3, 4, 5] `using` evalListNth 4 rseq@
+-- will eval @5@, not @4@.
 -- The spine of the list up to the nth element is evaluated as a side effect.
 evalListNth :: Int -> Strategy a -> Strategy [a]
 evalListNth n strat = evalListSplitAt n r0 (evalListN 1 strat)
