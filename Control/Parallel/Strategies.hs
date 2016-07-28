@@ -864,7 +864,7 @@ presented in the paper
   /Seq no More: Better Strategies for Parallel Haskell/
   <http://community.haskell.org/~simonmar/papers/strategies.pdf>
 
-The major differenes in the API are:
+The major differences in the API are:
 
  * The addition of Sequential strategies ("Control.Seq") as
    a composable means for specifying sequential evaluation.
