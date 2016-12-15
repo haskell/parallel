@@ -145,6 +145,9 @@ import Control.Applicative
 #endif
 import Control.Parallel
 import Control.DeepSeq
+#if MIN_VERSION_deepseq(1,4,3)
+    hiding (rwhnf)
+#endif
 import Control.Monad
 
 import qualified Control.Seq
