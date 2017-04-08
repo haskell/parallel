@@ -23,3 +23,8 @@
   * Drop support for GHCs older than GHC 7.0.1
   * Add NOINLINE pragmas to `parBuffer`, `parList`, and `evalBuffer`
     to make RULEs more likely to fire
+
+## Older versions
+
+  * This package has a long history which is described in the Haddock documentation
+    in the ["API History" section](./docs/Control-Parallel-Strategies.html#history)
