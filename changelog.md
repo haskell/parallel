@@ -1,5 +1,10 @@
 # Changelog for [`parallel` package](http://hackage.haskell.org/package/parallel)
 
+## 3.2.1.1  *Apr 2017*
+
+  - Compatibility with `deepseq-1.4.3`
+  - Minor documentation clarifications
+
 ## 3.2.1.0  *Jan 2016*
 
   - Support `base-4.9.0.0`
