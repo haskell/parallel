@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns, CPP, MagicHash, UnboxedTuples #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Control.Parallel.Strategies
@@ -145,11 +146,18 @@ import Control.Applicative
 #endif
 import Control.Parallel
 import Control.DeepSeq (NFData(rnf))
+
+#if MIN_VERSION_base(4,4,0)
+import System.IO.Unsafe (unsafeDupablePerformIO)
+#else
+import System.IO.Unsafe (unsafePerformIO)
 import Control.Monad
+#endif
 
 import qualified Control.Seq
 
 import GHC.Exts
+import GHC.IO (IO (..))
 
 infixr 9 `dot`     -- same as (.)
 infixl 0 `using`   -- lowest precedence and associate to the left
@@ -192,27 +200,19 @@ infixl 0 `using`   -- lowest precedence and associate to the left
 
 #if __GLASGOW_HASKELL__ >= 702
 
-newtype Eval a = Eval (State# RealWorld -> (# State# RealWorld, a #))
+newtype Eval a = Eval {unEval_ :: IO a}
+  deriving (Functor, Applicative, Monad)
   -- GHC 7.2.1 added the seq# and spark# primitives, that we use in
   -- the Eval monad implementation in order to get the correct
   -- strictness behaviour.
 
 -- | Pull the result out of the monad.
 runEval :: Eval a -> a
-runEval (Eval x) = case x realWorld# of (# _, a #) -> a
-
-instance Functor Eval where
-  fmap = liftM
-
-instance Applicative Eval where
-  pure x = Eval $ \s -> (# s, x #)
-  (<*>)  = ap
-
-instance Monad Eval where
-  return = pure
-  Eval x >>= k = Eval $ \s -> case x s of
-                                (# s', a #) -> case k a of
-                                                      Eval f -> f s'
+#  if MIN_VERSION_base(4,4,0)
+runEval = unsafeDupablePerformIO . unEval_
+#  else
+runEval = unsafePerformIO . unEval_
+#  endif
 #else
 
 data Eval a = Done a
@@ -233,9 +233,6 @@ instance Monad Eval where
   Done x >>= k = lazy (k x)   -- Note: pattern 'Done x' makes '>>=' strict
 
 {-# RULES "lazy Done" forall x . lazy (Done x) = Done x #-}
-
-#endif
-
 
 -- The Eval monad satisfies the monad laws.
 --
@@ -258,6 +255,8 @@ instance Monad Eval where
 --                          ==> undefined >>= g
 --                          ==> undefined <== undefined >>= (\x -> f x >>= g)
 --                                        <*= m >>= (\x -> f x >>= g)
+
+#endif
 
 
 -- -----------------------------------------------------------------------------
@@ -356,10 +355,13 @@ r0 x = return x
 --
 rseq :: Strategy a
 #if __GLASGOW_HASKELL__ >= 702
-rseq x = Eval $ \s -> seq# x s
+rseq x = Eval $ IO $ \s -> seq# x s
 #else
 rseq x = x `seq` return x
 #endif
+-- Staged NOINLINE so we can match on rseq in RULES
+{-# NOINLINE [1] rseq #-}
+
 
 -- Proof of rseq == evalSeq Control.Seq.rseq
 --
@@ -388,7 +390,7 @@ rdeepseq x = do rseq (rnf x); return x
 -- | 'rpar' sparks its argument (for evaluation in parallel).
 rpar :: Strategy a
 #if __GLASGOW_HASKELL__ >= 702
-rpar  x = Eval $ \s -> spark# x s
+rpar  x = Eval $ IO $ \s -> spark# x s
 #else
 rpar  x = case (par# x) of { _ -> Done x }
 #endif
@@ -406,12 +408,7 @@ rpar  x = case (par# x) of { _ -> Done x }
 --
 rparWith :: Strategy a -> Strategy a
 #if __GLASGOW_HASKELL__ >= 702
-rparWith s a = do l <- rpar r; return (case l of Lift x -> x)
-  where r = case s a of
-              Eval f -> case f realWorld# of
-                          (# _, a' #) -> Lift a'
-
-data Lift a = Lift a
+rparWith s = rpar `dot` s
 #else
 rparWith s a = do l <- rpar (s a); return (case l of Done x -> x)
 #endif
@@ -501,26 +498,6 @@ parListChunk n strat xs
 chunk :: Int -> [a] -> [[a]]
 chunk _ [] = []
 chunk n xs = as : chunk n bs where (as,bs) = splitAt n xs
-
--- Non-compositional version of 'parList', evaluating list elements
--- to weak head normal form.
--- Not to be exported; used for optimisation.
-
--- | DEPRECATED: use @'parList' 'rseq'@ instead
-parListWHNF :: Strategy [a]
-parListWHNF xs = go xs `pseq` return xs
-  where -- go :: [a] -> [a]
-           go []     = []
-           go (y:ys) = y `par` go ys
-
--- The non-compositional 'parListWHNF' might be more efficient than its
--- more compositional counterpart; use RULES to do the specialisation.
-
-{-# NOINLINE [1] parList #-}
-{-# NOINLINE [1] rseq #-}
-{-# RULES
- "parList/rseq" parList rseq = parListWHNF
- #-}
 
 -- --------------------------------------------------------------------------
 -- Convenience
@@ -751,8 +728,6 @@ seqTraverse = evalTraversable
 -- | DEPRECATED: renamed to 'parTraversable'
 parTraverse :: Traversable t => Strategy a -> Strategy (t a)
 parTraverse = parTraversable
-
-{-# DEPRECATED parListWHNF "use (parList rseq) instead" #-}
 
 {-# DEPRECATED seqList "renamed to evalList" #-}
 -- | DEPRECATED: renamed to 'evalList'
