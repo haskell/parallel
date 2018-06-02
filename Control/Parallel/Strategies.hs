@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns, CPP, MagicHash, UnboxedTuples #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE RankNTypes #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Control.Parallel.Strategies
@@ -115,6 +116,9 @@ module Control.Parallel.Strategies (
          -- * For Strategy programmers
        , Eval              -- instances: Monad, Functor, Applicative
        , runEval           -- :: Eval a -> a
+       , runEval#
+       , evalToIO
+       , stToEval
        ,
 
     -- * API History
@@ -149,7 +153,6 @@ import Control.DeepSeq (NFData(rnf))
 
 #if MIN_VERSION_base(4,4,0)
 import System.IO.Unsafe (unsafeDupablePerformIO)
-import Control.Exception (evaluate)
 #else
 import System.IO.Unsafe (unsafePerformIO)
 import Control.Monad
@@ -157,6 +160,8 @@ import Control.Monad
 
 import qualified Control.Seq
 
+import Control.Exception (evaluate)
+import Control.Monad.ST (ST, stToIO)
 import GHC.Exts
 import GHC.IO (IO (..))
 
@@ -214,6 +219,7 @@ runEval = unsafeDupablePerformIO . unEval_
 #  else
 runEval = unsafePerformIO . unEval_
 #  endif
+
 #else
 
 data Eval a = Done a
@@ -259,6 +265,68 @@ instance Monad Eval where
 
 #endif
 
+-- | Run an 'Eval' computation without forcing the result.
+--
+-- For example,
+--
+-- @ case runEval# (rpar x) of (# a #) -> f a @
+--
+-- will spark a computation to evaluate @x@ and pass a thunk representing
+-- the result to @f@.
+--
+-- @ 'runEval' m = case runEval# m of (# a #) -> a @
+--
+-- @ 'evalToIO' m = case runEval# m of (# a #) -> return a @
+--
+-- Note that 'evalToIO' is a bit friendlier to the optimizer when
+-- it applies.
+runEval# :: Eval a -> (# a #)
+#if __GLASGOW_HASKELL__ >= 800
+runEval# (Eval (IO m)) = case runRW# m of
+                           (# _, a #) -> (# a #)
+#else
+data Box a = Box a
+runEval# m = case runEval (Box <$> m) of
+               Box a -> (# a #)
+#endif
+
+-- | Run an 'Eval' computation in an 'IO' context. The value is
+-- not evaluated any further than the 'Eval' computation demands.
+-- For example,
+--
+-- @
+-- do
+--   x <- evalToIO (rpar a)
+--   m
+--   'evaluate' x
+-- @
+--
+-- will first spark a parallel computation to evaluate @a@,
+-- then perform the @m@ action, and finally force the result
+-- to WHNF.
+--
+-- Note that
+--
+-- @evalToIO ('rseq' a) = 'evaluate' a@
+-- @evalToIO ('r0' a) = pure a@
+evalToIO :: Eval a -> IO a
+#if __GLASGOW_HASKELL__ >= 702
+evalToIO = unEval_
+#else
+evalToIO d = do
+  Done a <- evaluate d
+  return a
+#endif
+
+-- | Evaluate an 'ST' computation in 'Eval'.
+--
+-- @stToEval m = pure ('runST' m)@
+stToEval :: (forall s. ST s a) -> Eval a
+#if __GLASGOW_HASKELL__ >= 702
+stToEval m = Eval (stToIO m)
+#else
+stToEval m = Done (runST m)
+#endif
 
 -- -----------------------------------------------------------------------------
 -- Strategies
