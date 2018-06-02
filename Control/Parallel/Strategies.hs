@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns, CPP, MagicHash, UnboxedTuples #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Control.Parallel.Strategies
@@ -78,6 +79,7 @@ module Control.Parallel.Strategies (
          -- ** Strategies for lazy lists
        , evalBuffer        -- :: Int -> Strategy a -> Strategy [a]
        , parBuffer
+       , buffering         -- :: Int -> Strategy a -> Strategy [a]
 
          -- * Strategies for tuples
 
@@ -376,6 +378,7 @@ type SeqStrategy a = Control.Seq.Strategy a
 --
 r0 :: Strategy a
 r0 x = return x
+{-# INLINE [1] r0 #-}
 
 -- Proof of r0 == evalSeq Control.Seq.r0
 --
@@ -430,7 +433,7 @@ rpar  x = Eval $ IO $ \s -> spark# x s
 #else
 rpar  x = case (par# x) of { _ -> Done x }
 #endif
-{-# INLINE rpar  #-}
+{-# INLINE [1] rpar  #-}
 
 -- | Perform a computation in parallel using a strategy.
 --
@@ -569,7 +572,7 @@ parMap strat f = (`using` parList strat) . map f
 
 -- List-based non-compositional rolling buffer strategy, evaluating list
 -- elements to weak head normal form.
--- Not to be exported; used in evalBuffer and for optimisation.
+-- Not to be exported; used for optimisation.
 evalBufferWHNF :: Int -> Strategy [a]
 evalBufferWHNF n0 xs0 = return (ret xs0 (start n0 xs0))
   where -- ret :: [a] -> [a] -> [a]
@@ -582,47 +585,70 @@ evalBufferWHNF n0 xs0 = return (ret xs0 (start n0 xs0))
            start !n  (y:ys) = y `pseq` start (n-1) ys
 
 -- | 'evalBuffer' is a rolling buffer strategy combinator for (lazy) lists.
+-- Pattern matching on the result will evaluate the first @n+1@ elements using
+-- the given strategy. Pattern matching on each additional list cons will
+-- evaluate an additional element.
 --
--- 'evalBuffer' is not as compositional as the type suggests. In fact,
--- it evaluates list elements at least to weak head normal form,
--- disregarding a strategy argument 'r0'.
+-- @evalBuffer n strat = buffering n (rseq `dot` strat)@
 --
--- > evalBuffer n r0 == evalBuffer n rseq
---
+-- 'evalBuffer' is not as compositional as the name and type suggest.
+-- In fact, it evaluates list elements at least to weak head normal
+-- form, disregarding a strategy argument of 'r0'. For a compositional
+-- version, see 'buffering'.
 evalBuffer :: Int -> Strategy a -> Strategy [a]
-evalBuffer n strat =  evalBufferWHNF n . map (withStrategy strat)
-
--- Like evalBufferWHNF but sparks the list elements when pushing them
--- into the buffer.
--- Not to be exported; used in parBuffer and for optimisation.
-parBufferWHNF :: Int -> Strategy [a]
-parBufferWHNF n0 xs0 = return (ret xs0 (start n0 xs0))
+evalBuffer n0 strat xs0 = return (ret xs0 (start n0 xs0))
   where -- ret :: [a] -> [a] -> [a]
-           ret (x:xs) (y:ys) = y `par` (x : ret xs ys)
+           ret (x:xs) (y:ys) = withStrategy strat y `pseq` (x : ret xs ys)
            ret xs     _      = xs
 
         -- start :: Int -> [a] -> [a]
            start 0   ys     = ys
            start !_n []     = []
-           start !n  (y:ys) = y `par` start (n-1) ys
+           start !n  (y:ys) = withStrategy strat y `pseq` start (n-1) ys
+-- Alternative definition via evalBufferWHNF (won't be deforested):
+-- evalBuffer n strat =  evalBufferWHNF n . map (withStrategy strat)
 
-
--- | Like 'evalBuffer' but evaluates the list elements in parallel when
--- pushing them into the buffer.
-parBuffer :: Int -> Strategy a -> Strategy [a]
-parBuffer n strat = parBufferWHNF n . map (withStrategy strat)
--- Alternative definition via evalBuffer (may compromise firing of RULES):
--- parBuffer n strat = evalBuffer n (rparWith strat)
-
--- Deforest the intermediate list in parBuffer/evalBuffer when it is
--- unnecessary:
+-- Avoid unnecessary withStrategy calls in/evalBuffer:
 
 {-# NOINLINE [1] evalBuffer #-}
-{-# NOINLINE [1] parBuffer #-}
 {-# RULES
 "evalBuffer/rseq"  forall n . evalBuffer  n rseq = evalBufferWHNF n
-"parBuffer/rseq"   forall n . parBuffer   n rseq = parBufferWHNF  n
+"evalBuffer/rpar"  forall n . evalBuffer  n rpar = evalBufferWHNF n
+"evalBuffer/r0"    forall n . evalBuffer  n r0 = evalBufferWHNF n
  #-}
+
+-- | 'parBuffer' is a rolling buffer strategy combinator for lazy
+-- lists. Pattern matching on the result of @parBuffer n s xs@ sparks
+-- computations to evaluate the first @n+1@ elements of @xs@ using the
+-- strategy @s@. Pattern matching on each additional list cons will
+-- spark an additional computation.
+--
+-- @parBuffer n strat = 'buffering' n ('rparWith' strat)@
+parBuffer :: Int -> Strategy a -> Strategy [a]
+parBuffer n strat = buffering n (rparWith strat)
+
+-- | 'buffering' is a compositional version of 'evalBuffer' and 'parBuffer'.
+-- Pattern matching on the result of @buffering n strat xs@ will evaluate the
+-- first @n+1@ elements of @xs@ using @strat@. Pattern matching on each
+-- additional list cons will evaluate an additional element using @strat@.
+buffering :: forall a b. Int -> (a -> Eval b) -> [a] -> Eval [b]
+buffering n0 strat xs0 = return (ret tied (drop n0 tied))
+  where
+    tied :: [b]
+    tied = tieConses strat xs0
+
+    ret :: forall c. [b] -> [c] -> [b]
+    ret (x:xs) (_y:ys) = x : ret xs ys
+    ret xs     _       = xs
+
+    -- This is the heart of the strategy. The idea is to tie the evaluation
+    -- of each cons (to WHNF) to the evaluation of its contents (according
+    -- to strat). Walking the spine of the result will thus perform
+    -- the requested Eval actions.
+    tieConses :: (a -> Eval b) -> [a] -> [b]
+    tieConses strat = foldr go []
+      where
+        go x r = runEval ((:r) <$> strat x)
 
 -- --------------------------------------------------------------------------
 -- Strategies for tuples
