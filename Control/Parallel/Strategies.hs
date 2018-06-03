@@ -1,4 +1,6 @@
 {-# LANGUAGE BangPatterns, CPP, MagicHash, UnboxedTuples #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Control.Parallel.Strategies
@@ -75,6 +77,7 @@ module Control.Parallel.Strategies (
          -- ** Strategies for lazy lists
        , evalBuffer        -- :: Int -> Strategy a -> Strategy [a]
        , parBuffer
+       , buffering         -- :: Int -> Strategy a -> Strategy [a]
 
          -- * Strategies for tuples
 
@@ -145,11 +148,18 @@ import Control.Applicative
 #endif
 import Control.Parallel
 import Control.DeepSeq (NFData(rnf))
+
+#if MIN_VERSION_base(4,4,0)
+import System.IO.Unsafe (unsafeDupablePerformIO)
+#else
+import System.IO.Unsafe (unsafePerformIO)
 import Control.Monad
+#endif
 
 import qualified Control.Seq
 
 import GHC.Exts
+import GHC.IO (IO (..))
 
 infixr 9 `dot`     -- same as (.)
 infixl 0 `using`   -- lowest precedence and associate to the left
@@ -192,27 +202,19 @@ infixl 0 `using`   -- lowest precedence and associate to the left
 
 #if __GLASGOW_HASKELL__ >= 702
 
-newtype Eval a = Eval (State# RealWorld -> (# State# RealWorld, a #))
+newtype Eval a = Eval {unEval_ :: IO a}
+  deriving (Functor, Applicative, Monad)
   -- GHC 7.2.1 added the seq# and spark# primitives, that we use in
   -- the Eval monad implementation in order to get the correct
   -- strictness behaviour.
 
 -- | Pull the result out of the monad.
 runEval :: Eval a -> a
-runEval (Eval x) = case x realWorld# of (# _, a #) -> a
-
-instance Functor Eval where
-  fmap = liftM
-
-instance Applicative Eval where
-  pure x = Eval $ \s -> (# s, x #)
-  (<*>)  = ap
-
-instance Monad Eval where
-  return = pure
-  Eval x >>= k = Eval $ \s -> case x s of
-                                (# s', a #) -> case k a of
-                                                      Eval f -> f s'
+#  if MIN_VERSION_base(4,4,0)
+runEval = unsafeDupablePerformIO . unEval_
+#  else
+runEval = unsafePerformIO . unEval_
+#  endif
 #else
 
 data Eval a = Done a
@@ -233,9 +235,6 @@ instance Monad Eval where
   Done x >>= k = lazy (k x)   -- Note: pattern 'Done x' makes '>>=' strict
 
 {-# RULES "lazy Done" forall x . lazy (Done x) = Done x #-}
-
-#endif
-
 
 -- The Eval monad satisfies the monad laws.
 --
@@ -258,6 +257,8 @@ instance Monad Eval where
 --                          ==> undefined >>= g
 --                          ==> undefined <== undefined >>= (\x -> f x >>= g)
 --                                        <*= m >>= (\x -> f x >>= g)
+
+#endif
 
 
 -- -----------------------------------------------------------------------------
@@ -341,6 +342,7 @@ type SeqStrategy a = Control.Seq.Strategy a
 --
 r0 :: Strategy a
 r0 x = return x
+{-# INLINE [1] r0 #-}
 
 -- Proof of r0 == evalSeq Control.Seq.r0
 --
@@ -356,10 +358,13 @@ r0 x = return x
 --
 rseq :: Strategy a
 #if __GLASGOW_HASKELL__ >= 702
-rseq x = Eval $ \s -> seq# x s
+rseq x = Eval $ IO $ \s -> seq# x s
 #else
 rseq x = x `seq` return x
 #endif
+-- Staged NOINLINE so we can match on rseq in RULES
+{-# NOINLINE [1] rseq #-}
+
 
 -- Proof of rseq == evalSeq Control.Seq.rseq
 --
@@ -388,11 +393,11 @@ rdeepseq x = do rseq (rnf x); return x
 -- | 'rpar' sparks its argument (for evaluation in parallel).
 rpar :: Strategy a
 #if __GLASGOW_HASKELL__ >= 702
-rpar  x = Eval $ \s -> spark# x s
+rpar  x = Eval $ IO $ \s -> spark# x s
 #else
 rpar  x = case (par# x) of { _ -> Done x }
 #endif
-{-# INLINE rpar  #-}
+{-# INLINE [1] rpar  #-}
 
 -- | instead of saying @rpar `dot` strat@, you can say
 -- @rparWith strat@.  Compared to 'rpar', 'rparWith'
@@ -406,12 +411,7 @@ rpar  x = case (par# x) of { _ -> Done x }
 --
 rparWith :: Strategy a -> Strategy a
 #if __GLASGOW_HASKELL__ >= 702
-rparWith s a = do l <- rpar r; return (case l of Lift x -> x)
-  where r = case s a of
-              Eval f -> case f realWorld# of
-                          (# _, a' #) -> Lift a'
-
-data Lift a = Lift a
+rparWith s = rpar `dot` s
 #else
 rparWith s a = do l <- rpar (s a); return (case l of Done x -> x)
 #endif
@@ -502,26 +502,6 @@ chunk :: Int -> [a] -> [[a]]
 chunk _ [] = []
 chunk n xs = as : chunk n bs where (as,bs) = splitAt n xs
 
--- Non-compositional version of 'parList', evaluating list elements
--- to weak head normal form.
--- Not to be exported; used for optimisation.
-
--- | DEPRECATED: use @'parList' 'rseq'@ instead
-parListWHNF :: Strategy [a]
-parListWHNF xs = go xs `pseq` return xs
-  where -- go :: [a] -> [a]
-           go []     = []
-           go (y:ys) = y `par` go ys
-
--- The non-compositional 'parListWHNF' might be more efficient than its
--- more compositional counterpart; use RULES to do the specialisation.
-
-{-# NOINLINE [1] parList #-}
-{-# NOINLINE [1] rseq #-}
-{-# RULES
- "parList/rseq" parList rseq = parListWHNF
- #-}
-
 -- --------------------------------------------------------------------------
 -- Convenience
 
@@ -537,7 +517,7 @@ parMap strat f = (`using` parList strat) . map f
 
 -- List-based non-compositional rolling buffer strategy, evaluating list
 -- elements to weak head normal form.
--- Not to be exported; used in evalBuffer and for optimisation.
+-- Not to be exported; used for optimisation.
 evalBufferWHNF :: Int -> Strategy [a]
 evalBufferWHNF n0 xs0 = return (ret xs0 (start n0 xs0))
   where -- ret :: [a] -> [a] -> [a]
@@ -550,19 +530,34 @@ evalBufferWHNF n0 xs0 = return (ret xs0 (start n0 xs0))
            start !n  (y:ys) = y `pseq` start (n-1) ys
 
 -- | 'evalBuffer' is a rolling buffer strategy combinator for (lazy) lists.
+-- Pattern matching on the result will evaluate the first @n@ elements using
+-- the given strategy. Pattern matching on each additional list cons will
+-- evaluate an additional element.
+--
+-- @evalBuffer n strat = buffering n (rseq <=< strat)@
 --
 -- 'evalBuffer' is not as compositional as the type suggests. In fact,
 -- it evaluates list elements at least to weak head normal form,
 -- disregarding a strategy argument 'r0'.
 --
--- > evalBuffer n r0 == evalBuffer n rseq
+-- > evalBuffer n strat == evalBuffer n (rseq `dot` strat)
 --
 evalBuffer :: Int -> Strategy a -> Strategy [a]
-evalBuffer n strat =  evalBufferWHNF n . map (withStrategy strat)
+evalBuffer n0 strat xs0 = return (ret xs0 (start n0 xs0))
+  where -- ret :: [a] -> [a] -> [a]
+           ret (x:xs) (y:ys) = withStrategy strat y `pseq` (x : ret xs ys)
+           ret xs     _      = xs
+
+        -- start :: Int -> [a] -> [a]
+           start 0   ys     = ys
+           start !_n []     = []
+           start !n  (y:ys) = withStrategy strat y `pseq` start (n-1) ys
+-- Alternative definition via evalBufferWHNF (won't be deforested):
+-- evalBuffer n strat =  evalBufferWHNF n . map (withStrategy strat)
 
 -- Like evalBufferWHNF but sparks the list elements when pushing them
 -- into the buffer.
--- Not to be exported; used in parBuffer and for optimisation.
+-- Not to be exported; used for optimisation.
 parBufferWHNF :: Int -> Strategy [a]
 parBufferWHNF n0 xs0 = return (ret xs0 (start n0 xs0))
   where -- ret :: [a] -> [a] -> [a]
@@ -575,22 +570,65 @@ parBufferWHNF n0 xs0 = return (ret xs0 (start n0 xs0))
            start !n  (y:ys) = y `par` start (n-1) ys
 
 
--- | Like 'evalBuffer' but evaluates the list elements in parallel when
--- pushing them into the buffer.
+-- | 'parBuffer' is a rolling buffer strategy combinator for lazy
+-- lists. Pattern matching on the result of @parBuffer n s xs@ sparks
+-- computations to evaluate the first @n@ elements of @xs@ using the
+-- strategy @s@. Pattern matching on each additional list cons will
+-- spark an additional computation.
+--
+-- @parBuffer n strat = 'buffering' n ('rparWith' strat)@
+--
+-- 'parBuffer' is not quite as compositional as the type suggests. In fact,
+-- it sparks computations to evaluate list elements at least to weak
+-- head normal form, disregarding a strategy argument 'r0'.
+--
+-- > parBuffer n strat = parBuffer n (rseq `dot` strat)
 parBuffer :: Int -> Strategy a -> Strategy [a]
-parBuffer n strat = parBufferWHNF n . map (withStrategy strat)
--- Alternative definition via evalBuffer (may compromise firing of RULES):
--- parBuffer n strat = evalBuffer n (rparWith strat)
+parBuffer n0 strat xs0 = return (ret xs0 (start n0 xs0))
+  where -- ret :: [a] -> [a] -> [a]
+           ret (x:xs) (y:ys) = withStrategy strat y `par` (x : ret xs ys)
+           ret xs     _      = xs
 
--- Deforest the intermediate list in parBuffer/evalBuffer when it is
--- unnecessary:
+        -- start :: Int -> [a] -> [a]
+           start 0   ys     = ys
+           start !_n []     = []
+           start !n  (y:ys) = withStrategy strat y `par` start (n-1) ys
+-- Alternative definition via parBufferWHNF (won't be deforested):
+-- parBuffer n strat = parBufferWHNF n . map (withStrategy strat)
+
+-- Avoid unnecessary withStrategy calls in parBuffer/evalBuffer:
 
 {-# NOINLINE [1] evalBuffer #-}
 {-# NOINLINE [1] parBuffer #-}
 {-# RULES
 "evalBuffer/rseq"  forall n . evalBuffer  n rseq = evalBufferWHNF n
+"evalBuffer/rpar"  forall n . evalBuffer  n rpar = evalBufferWHNF n
+"evalBuffer/r0"    forall n . evalBuffer  n r0 = evalBufferWHNF n
 "parBuffer/rseq"   forall n . parBuffer   n rseq = parBufferWHNF  n
+"parBuffer/rpar"   forall n . parBuffer   n rpar = parBufferWHNF  n
+"parBuffer/r0"     forall n . parBuffer   n r0 = parBufferWHNF  n
  #-}
+
+-- | 'buffering' is a compositional version of 'evalBuffer' and 'parBuffer'.
+-- Pattern matching on the result of @buffering n strat xs@ will evaluate the
+-- first @n@ elements of @xs@ using @strat@. Pattern matching on each list cons
+-- will evaluate an additional element using @strat@.
+--
+-- @buffering :: Int -> Strategy a -> Strategy [a]@
+buffering :: forall a b. Int -> (a -> Eval b) -> [a] -> Eval [b]
+buffering n0 strat xs0 = return (ret tied (drop n0 tied))
+  where
+    tied :: [b]
+    tied = tieConses strat xs0
+
+    ret :: forall c. [b] -> [c] -> [b]
+    ret (x:xs) (_y:ys) = x : ret xs ys
+    ret xs     _       = xs
+
+tieConses :: (a -> Eval b) -> [a] -> [b]
+tieConses strat = foldr go []
+  where
+    go x r = runEval ((:r) <$> strat x)
 
 -- --------------------------------------------------------------------------
 -- Strategies for tuples
@@ -751,8 +789,6 @@ seqTraverse = evalTraversable
 -- | DEPRECATED: renamed to 'parTraversable'
 parTraverse :: Traversable t => Strategy a -> Strategy (t a)
 parTraverse = parTraversable
-
-{-# DEPRECATED parListWHNF "use (parList rseq) instead" #-}
 
 {-# DEPRECATED seqList "renamed to evalList" #-}
 -- | DEPRECATED: renamed to 'evalList'
