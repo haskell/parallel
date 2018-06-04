@@ -296,6 +296,12 @@ withStrategy = flip using
 -- | Compose two strategies sequentially.
 -- This is the analogue to function composition on strategies.
 --
+-- For any strategies @strat1@, @strat2@, and @strat3@,
+--
+-- > (strat1 `dot` strat2) `dot` strat3 == strat1 `dot` (strat2 `dot` strat3)
+-- > strat1 `dot` strat1 = strat1
+-- > strat1 `dot` r0 == strat1
+--
 -- > strat2 `dot` strat1 == strat2 . withStrategy strat1
 --
 dot :: Strategy a -> Strategy a -> Strategy a
