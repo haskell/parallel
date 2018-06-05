@@ -145,15 +145,14 @@ import Data.Traversable
 import Control.Applicative
 #endif
 import Control.Parallel
-import Control.DeepSeq (NFData(rnf))
+import Control.DeepSeq (NFData, force)
 
 #if MIN_VERSION_base(4,4,0)
 import System.IO.Unsafe (unsafeDupablePerformIO)
-import Control.Exception (evaluate)
 #else
 import System.IO.Unsafe (unsafePerformIO)
-import Control.Monad
 #endif
+import Control.Monad
 
 import qualified Control.Seq
 
@@ -202,10 +201,18 @@ infixl 0 `using`   -- lowest precedence and associate to the left
 #if __GLASGOW_HASKELL__ >= 702
 
 newtype Eval a = Eval {unEval_ :: IO a}
-  deriving (Functor, Applicative, Monad)
+  deriving Functor
   -- GHC 7.2.1 added the seq# and spark# primitives, that we use in
   -- the Eval monad implementation in order to get the correct
   -- strictness behaviour.
+
+instance Applicative Eval where
+  pure x = r0 x
+  (<*>) = ap
+
+instance Monad Eval where
+  return x = pure x
+  Eval m >>= f = Eval (m >>= unEval_ . f)
 
 -- | Pull the result out of the monad.
 runEval :: Eval a -> a
@@ -214,6 +221,8 @@ runEval = unsafeDupablePerformIO . unEval_
 #  else
 runEval = unsafePerformIO . unEval_
 #  endif
+-- Staged inline for RULES
+{-# INLINE [1] runEval #-}
 #else
 
 data Eval a = Done a
@@ -221,6 +230,7 @@ data Eval a = Done a
 -- | Pull the result out of the monad.
 runEval :: Eval a -> a
 runEval (Done x) = x
+{-# INLINE [1] runEval #-}
 
 instance Functor Eval where
   fmap = liftM
@@ -259,6 +269,11 @@ instance Monad Eval where
 
 #endif
 
+{-# RULES
+"runEval/r0" forall x. runEval (r0 x) = x
+"runEval/rpar" forall x. runEval (rpar x) = x
+"runEval/rseq" forall x. runEval (rseq x) = x
+ #-}
 
 -- -----------------------------------------------------------------------------
 -- Strategies
@@ -286,12 +301,14 @@ type Strategy a = a -> Eval a
 --
 using :: a -> Strategy a -> a
 x `using` strat = runEval (strat x)
+{-# INLINABLE using #-}
 
 -- | evaluate a value using the given 'Strategy'.  This is simply
 -- 'using' with the arguments reversed.
 --
 withStrategy :: Strategy a -> a -> a
 withStrategy = flip using
+{-# INLINABLE withStrategy #-}
 
 -- | Compose two strategies sequentially.
 -- This is the analogue to function composition on strategies.
@@ -306,6 +323,7 @@ withStrategy = flip using
 --
 dot :: Strategy a -> Strategy a -> Strategy a
 strat2 `dot` strat1 = strat2 . runEval . strat1
+{-# INLINABLE dot #-}
 
 -- Proof of strat2 `dot` strat1 == strat2 . withStrategy strat1
 --
@@ -333,7 +351,8 @@ strat2 `dot` strat1 = strat2 . runEval . strat1
 -- Thanks to 'evalSeq', the type @Control.Seq.Strategy a@ is a subtype
 -- of @'Strategy' a@.
 evalSeq :: SeqStrategy a -> Strategy a
-evalSeq strat x = strat x `pseq` return x
+evalSeq sstrat x = rseq (sstrat x) >> return x
+{-# INLINABLE evalSeq #-}
 
 -- | A name for @Control.Seq.Strategy@, for documentation only.
 type SeqStrategy a = Control.Seq.Strategy a
@@ -346,7 +365,13 @@ type SeqStrategy a = Control.Seq.Strategy a
 -- > r0 == evalSeq Control.Seq.r0
 --
 r0 :: Strategy a
-r0 x = return x
+#if __GLASGOW_HASKELL__ >= 702
+r0 x = Eval (return x)
+#else
+r0 = Done
+#endif
+-- Staged INLINE for RULES
+{-# INLINABLE [1] r0 #-}
 
 -- Proof of r0 == evalSeq Control.Seq.r0
 --
@@ -362,12 +387,15 @@ r0 x = return x
 --
 rseq :: Strategy a
 #if __GLASGOW_HASKELL__ >= 702
-rseq x = Eval (evaluate x)
+-- The bang pattern here works around GHC Trac #15226
+rseq x = Eval $ IO $ \s ->
+  case seq# x s of
+    (# s', !x' #) -> (# s', x' #)
 #else
 rseq x = x `seq` return x
 #endif
--- Staged NOINLINE so we can match on rseq in RULES
-{-# NOINLINE [1] rseq #-}
+-- Staged INLINE for RULES
+{-# INLINABLE [1] rseq #-}
 
 
 -- Proof of rseq == evalSeq Control.Seq.rseq
@@ -383,7 +411,8 @@ rseq x = x `seq` return x
 -- > rdeepseq == evalSeq Control.Seq.rdeepseq
 --
 rdeepseq :: NFData a => Strategy a
-rdeepseq x = do rseq (rnf x); return x
+rdeepseq x = rseq (force x)
+{-# INLINABLE rdeepseq #-}
 
 -- Proof of rdeepseq == evalSeq Control.Seq.rdeepseq
 --
@@ -401,7 +430,8 @@ rpar  x = Eval $ IO $ \s -> spark# x s
 #else
 rpar  x = case (par# x) of { _ -> Done x }
 #endif
-{-# INLINE rpar  #-}
+-- Staged inline for RULES
+{-# INLINABLE [1] rpar  #-}
 
 -- | instead of saying @rpar `dot` strat@, you can say
 -- @rparWith strat@.  Compared to 'rpar', 'rparWith'
@@ -419,6 +449,7 @@ rparWith s = rpar `dot` s
 #else
 rparWith s a = do l <- rpar (s a); return (case l of Done x -> x)
 #endif
+{-# INLINABLE rparWith #-}
 
 -- --------------------------------------------------------------------------
 -- Strategy combinators for Traversable data types
@@ -427,12 +458,11 @@ rparWith s a = do l <- rpar (s a); return (case l of Done x -> x)
 -- according to the given strategy.
 evalTraversable :: Traversable t => Strategy a -> Strategy (t a)
 evalTraversable = traverse
-{-# INLINE evalTraversable #-}
 
 -- | Like 'evalTraversable' but evaluates all elements in parallel.
 parTraversable :: Traversable t => Strategy a -> Strategy (t a)
 parTraversable strat = evalTraversable (rparWith strat)
-{-# INLINE parTraversable #-}
+{-# INLINABLE parTraversable #-}
 
 -- --------------------------------------------------------------------------
 -- Strategies for lists
@@ -451,6 +481,7 @@ evalList = evalTraversable
 --  Equivalent to 'parTraversable' at the list type.
 parList :: Strategy a -> Strategy [a]
 parList = parTraversable
+{-# INLINABLE parList #-}
 -- Alternative definition via evalList:
 -- parList strat = evalList (rparWith strat)
 
@@ -467,6 +498,7 @@ evalListSplitAt n stratPref stratSuff xs
 -- | Like 'evalListSplitAt' but evaluates both sublists in parallel.
 parListSplitAt :: Int -> Strategy [a] -> Strategy [a] -> Strategy [a]
 parListSplitAt n stratPref stratSuff = evalListSplitAt n (rparWith stratPref) (rparWith stratSuff)
+{-# INLINABLE parListSplitAt #-}
 
 -- | Evaluate the first n elements of a list according to the given strategy.
 evalListN :: Int -> Strategy a -> Strategy [a]
@@ -475,6 +507,7 @@ evalListN n strat = evalListSplitAt n (evalList strat) r0
 -- | Like 'evalListN' but evaluates the first n elements in parallel.
 parListN :: Int -> Strategy a -> Strategy [a]
 parListN n strat = evalListN n (rparWith strat)
+{-# INLINABLE parListN #-}
 
 -- | Evaluate the nth element of a list (if there is such) according to
 -- the given strategy.
@@ -487,6 +520,7 @@ evalListNth n strat = evalListSplitAt n r0 (evalListN 1 strat)
 -- | Like 'evalListN' but evaluates the nth element in parallel.
 parListNth :: Int -> Strategy a -> Strategy [a]
 parListNth n strat = evalListNth n (rparWith strat)
+{-# INLINABLE parListNth #-}
 
 -- | Divides a list into chunks, and applies the strategy
 -- @'evalList' strat@ to each chunk in parallel.
@@ -515,6 +549,7 @@ chunk n xs = as : chunk n bs where (as,bs) = splitAt n xs
 --
 parMap :: Strategy b -> (a -> b) -> [a] -> [b]
 parMap strat f = (`using` parList strat) . map f
+{-# INLINABLE parMap #-}
 
 -- --------------------------------------------------------------------------
 -- Strategies for lazy lists
@@ -563,6 +598,7 @@ parBufferWHNF n0 xs0 = return (ret xs0 (start n0 xs0))
 -- pushing them into the buffer.
 parBuffer :: Int -> Strategy a -> Strategy [a]
 parBuffer n strat = parBufferWHNF n . map (withStrategy strat)
+{-# INLINABLE parBuffer #-}
 -- Alternative definition via evalBuffer (may compromise firing of RULES):
 -- parBuffer n strat = evalBuffer n (rparWith strat)
 
@@ -570,10 +606,8 @@ parBuffer n strat = parBufferWHNF n . map (withStrategy strat)
 -- unnecessary:
 
 {-# NOINLINE [1] evalBuffer #-}
-{-# NOINLINE [1] parBuffer #-}
 {-# RULES
 "evalBuffer/rseq"  forall n . evalBuffer  n rseq = evalBufferWHNF n
-"parBuffer/rseq"   forall n . parBuffer   n rseq = parBufferWHNF  n
  #-}
 
 -- --------------------------------------------------------------------------
@@ -614,40 +648,48 @@ evalTuple9 strat1 strat2 strat3 strat4 strat5 strat6 strat7 strat8 strat9 (x1,x2
 parTuple2 :: Strategy a -> Strategy b -> Strategy (a,b)
 parTuple2 strat1 strat2 =
   evalTuple2 (rparWith strat1) (rparWith strat2)
+{-# INLINABLE parTuple2 #-}
 
 parTuple3 :: Strategy a -> Strategy b -> Strategy c -> Strategy (a,b,c)
 parTuple3 strat1 strat2 strat3 =
   evalTuple3 (rparWith strat1) (rparWith strat2) (rparWith strat3)
+{-# INLINABLE parTuple3 #-}
 
 parTuple4 :: Strategy a -> Strategy b -> Strategy c -> Strategy d -> Strategy (a,b,c,d)
 parTuple4 strat1 strat2 strat3 strat4 =
   evalTuple4 (rparWith strat1) (rparWith strat2) (rparWith strat3) (rparWith strat4)
+{-# INLINABLE parTuple4 #-}
 
 parTuple5 :: Strategy a -> Strategy b -> Strategy c -> Strategy d -> Strategy e -> Strategy (a,b,c,d,e)
 parTuple5 strat1 strat2 strat3 strat4 strat5 =
   evalTuple5 (rparWith strat1) (rparWith strat2) (rparWith strat3) (rparWith strat4) (rparWith strat5)
+{-# INLINABLE parTuple5 #-}
 
 parTuple6 :: Strategy a -> Strategy b -> Strategy c -> Strategy d -> Strategy e -> Strategy f -> Strategy (a,b,c,d,e,f)
 parTuple6 strat1 strat2 strat3 strat4 strat5 strat6 =
   evalTuple6 (rparWith strat1) (rparWith strat2) (rparWith strat3) (rparWith strat4) (rparWith strat5) (rparWith strat6)
+{-# INLINABLE parTuple6 #-}
 
 parTuple7 :: Strategy a -> Strategy b -> Strategy c -> Strategy d -> Strategy e -> Strategy f -> Strategy g -> Strategy (a,b,c,d,e,f,g)
 parTuple7 strat1 strat2 strat3 strat4 strat5 strat6 strat7 =
   evalTuple7 (rparWith strat1) (rparWith strat2) (rparWith strat3) (rparWith strat4) (rparWith strat5) (rparWith strat6) (rparWith strat7)
+{-# INLINABLE parTuple7 #-}
 
 parTuple8 :: Strategy a -> Strategy b -> Strategy c -> Strategy d -> Strategy e -> Strategy f -> Strategy g -> Strategy h -> Strategy (a,b,c,d,e,f,g,h)
 parTuple8 strat1 strat2 strat3 strat4 strat5 strat6 strat7 strat8 =
   evalTuple8 (rparWith strat1) (rparWith strat2) (rparWith strat3) (rparWith strat4) (rparWith strat5) (rparWith strat6) (rparWith strat7) (rparWith strat8)
+{-# INLINABLE parTuple8 #-}
 
 parTuple9 :: Strategy a -> Strategy b -> Strategy c -> Strategy d -> Strategy e -> Strategy f -> Strategy g -> Strategy h -> Strategy i -> Strategy (a,b,c,d,e,f,g,h,i)
 parTuple9 strat1 strat2 strat3 strat4 strat5 strat6 strat7 strat8 strat9 =
   evalTuple9 (rparWith strat1) (rparWith strat2) (rparWith strat3) (rparWith strat4) (rparWith strat5) (rparWith strat6) (rparWith strat7) (rparWith strat8) (rparWith strat9)
+{-# INLINABLE parTuple9 #-}
 
 -- --------------------------------------------------------------------------
 -- Strategic function application
 
 {-
-These are very handy when writing pipeline parallelism asa sequence of
+These are very handy when writing pipeline parallelism as a sequence of
 @$@, @$|@ and @$||@'s. There is no need of naming intermediate values
 in this case. The separation of algorithm from strategy is achieved by
 allowing strategies only as second arguments to @$|@ and @$||@.
@@ -656,34 +698,33 @@ allowing strategies only as second arguments to @$|@ and @$||@.
 -- | Sequential function application. The argument is evaluated using
 --   the given strategy before it is given to the function.
 ($|) :: (a -> b) -> Strategy a -> a -> b
-f $| s  = \ x -> let z = x `using` s in z `pseq` f z
+f $| s  = runEval . (return . f <=< rseq <=< s)
 
 -- | Parallel function application. The argument is evaluated using
 -- the given strategy, in parallel with the function application.
 ($||) :: (a -> b) -> Strategy a -> a -> b
-f $|| s = \ x -> let z = x `using` s in z `par` f z
+f $|| s = runEval . (return . f <=< rpar <=< s)
+{-# INLINABLE ($||) #-}
 
 -- | Sequential function composition. The result of
 -- the second function is evaluated using the given strategy,
 -- and then given to the first function.
 (.|) :: (b -> c) -> Strategy b -> (a -> b) -> (a -> c)
-(.|) f s g = \ x -> let z = g x `using` s in
-                    z `pseq` f z
+(.|) f s g = runEval . (return . f <=< rseq <=< s . g)
 
 -- | Parallel function composition. The result of the second
 -- function is evaluated using the given strategy,
 -- in parallel with the application of the first function.
 (.||) :: (b -> c) -> Strategy b -> (a -> b) -> (a -> c)
-(.||) f s g = \ x -> let z = g x `using` s in
-                    z `par` f z
+(.||) f s g = runEval . (return . f <=< rpar <=< s . g)
+{-# INLINABLE (.||) #-}
 
 -- | Sequential inverse function composition,
 -- for those who read their programs from left to right.
 -- The result of the first function is evaluated using the
 -- given strategy, and then given to the second function.
 (-|) :: (a -> b) -> Strategy b -> (b -> c) -> (a -> c)
-(-|) f s g = \ x -> let z = f x `using` s in
-                    z `pseq` g z
+(-|) f s g = runEval . (return . g <=< rseq <=< s . f)
 
 -- | Parallel inverse function composition,
 -- for those who read their programs from left to right.
@@ -691,8 +732,8 @@ f $|| s = \ x -> let z = x `using` s in z `par` f z
 -- given strategy, in parallel with the application of the
 -- second function.
 (-||) :: (a -> b) -> Strategy b -> (b -> c) -> (a -> c)
-(-||) f s g = \ x -> let z = f x `using` s in
-                    z `par` g z
+(-||) f s g = runEval . (return . g <=< rpar <=< s . f)
+{-# INLINABLE (-||) #-}
 
 -- -----------------------------------------------------------------------------
 -- Old/deprecated stuff
