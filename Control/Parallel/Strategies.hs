@@ -296,24 +296,22 @@ withStrategy = flip using
 -- | Compose two strategies sequentially.
 -- This is the analogue to function composition on strategies.
 --
--- > (strat1 `dot` strat2) `dot` strat3 == strat1 `dot` (strat2 `dot` strat3)
--- > strat `dot` r0 == strat
--- > rpar `dot` rseq == rpar
--- > rseq `dot` rpar == rseq
--- > r0 `dot` rpar == r0
--- > r0 `dot` rseq == r0
---
 -- > strat2 `dot` strat1 == strat2 . withStrategy strat1
 --
--- Furthermore, if @strat@ only forces and sparks computations (that is, it
--- doesn't actually change any values), then
+-- 'dot' is associative:
+--
+-- > (strat1 `dot` strat2) `dot` strat3 == strat1 `dot` (strat2 `dot` strat3)
+--
+-- 'r0', 'rseq', and 'rpar' are all one-sided identities of 'dot':
+--
+-- > strat `dot` r0 == strat
+-- > strat `dot` rseq == strat
+-- > strat `dot` rpar == strat
+--
+-- Furthermore, since strategies should only force and sparks computations
+-- (that is, they don't actually change any values),
 --
 -- > strat `dot` strat == strat
---
--- In particular,
---
--- > rpar `dot` rpar == rpar
--- > rseq `dot` rseq == rseq
 --
 dot :: Strategy a -> Strategy a -> Strategy a
 strat2 `dot` strat1 = strat2 . runEval . strat1
