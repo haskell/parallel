@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns, CPP, MagicHash, UnboxedTuples #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Control.Parallel.Strategies
@@ -147,16 +148,20 @@ import Data.Traversable
 import Control.Applicative
 #endif
 import Control.Parallel
-import Control.DeepSeq
+import Control.DeepSeq (NFData(rnf))
+
+#if MIN_VERSION_base(4,4,0)
+import System.IO.Unsafe (unsafeDupablePerformIO)
+import Control.Exception (evaluate)
+#else
+import System.IO.Unsafe (unsafePerformIO)
 import Control.Monad
+#endif
 
 import qualified Control.Seq
 
 import GHC.Exts
-
-#if __GLASGOW_HASKELL__ >= 702
-import GHC.Types (IO(..)) -- needed for runEvalIO
-#endif
+import GHC.IO (IO (..))
 
 infixr 9 `dot`     -- same as (.)
 infixl 0 `using`   -- lowest precedence and associate to the left
@@ -200,25 +205,24 @@ infixl 0 `usingIO` -- lowest precedence and associate to the left
 
 #if __GLASGOW_HASKELL__ >= 702
 
-newtype Eval a = Eval (State# RealWorld -> (# State# RealWorld, a #))
+newtype Eval a = Eval {unEval_ :: IO a}
+  deriving (Functor, Applicative, Monad)
   -- GHC 7.2.1 added the seq# and spark# primitives, that we use in
   -- the Eval monad implementation in order to get the correct
   -- strictness behaviour.
 
 -- | Pull the result out of the monad.
 runEval :: Eval a -> a
-runEval (Eval x) = case x realWorld# of (# _, a #) -> a
-
-instance Monad Eval where
-  return x = Eval $ \s -> (# s, x #)
-  Eval x >>= k = Eval $ \s -> case x s of
-                                (# s', a #) -> case k a of
-                                                      Eval f -> f s'
+#  if MIN_VERSION_base(4,4,0)
+runEval = unsafeDupablePerformIO . unEval_
+#  else
+runEval = unsafePerformIO . unEval_
+#  endif
 
 -- | Run the evaluation in the 'IO' monad. This allows sequencing of
 -- evaluations relative to 'IO' actions.
 runEvalIO :: Eval a -> IO a
-runEvalIO (Eval x) = IO x
+runEvalIO = unEval_
 
 #else
 
@@ -228,27 +232,23 @@ data Eval a = Done a
 runEval :: Eval a -> a
 runEval (Done x) = x
 
-instance Monad Eval where
-  return x = Done x
-  Done x >>= k = lazy (k x)   -- Note: pattern 'Done x' makes '>>=' strict
-
-{-# RULES "lazy Done" forall x . lazy (Done x) = Done x #-}
-
 -- | Run the evaluation in the 'IO' monad. This allows sequencing of
 -- evaluations relative to 'IO' actions.
 runEvalIO :: Eval a -> IO a
 runEvalIO (Done x) = return x
 
-#endif
-
-
 instance Functor Eval where
   fmap = liftM
 
 instance Applicative Eval where
+  pure = Done
   (<*>) = ap
-  pure  = return
 
+instance Monad Eval where
+  return = pure
+  Done x >>= k = lazy (k x)   -- Note: pattern 'Done x' makes '>>=' strict
+
+{-# RULES "lazy Done" forall x . lazy (Done x) = Done x #-}
 
 -- The Eval monad satisfies the monad laws.
 --
@@ -271,6 +271,8 @@ instance Applicative Eval where
 --                          ==> undefined >>= g
 --                          ==> undefined <== undefined >>= (\x -> f x >>= g)
 --                                        <*= m >>= (\x -> f x >>= g)
+
+#endif
 
 
 -- -----------------------------------------------------------------------------
@@ -323,6 +325,12 @@ withStrategyIO = flip usingIO
 -- | Compose two strategies sequentially.
 -- This is the analogue to function composition on strategies.
 --
+-- For any strategies @strat1@, @strat2@, and @strat3@,
+--
+-- > (strat1 `dot` strat2) `dot` strat3 == strat1 `dot` (strat2 `dot` strat3)
+-- > strat1 `dot` strat1 = strat1
+-- > strat1 `dot` r0 == strat1
+--
 -- > strat2 `dot` strat1 == strat2 . withStrategy strat1
 --
 dot :: Strategy a -> Strategy a -> Strategy a
@@ -356,7 +364,7 @@ strat2 `dot` strat1 = strat2 . runEval . strat1
 evalSeq :: SeqStrategy a -> Strategy a
 evalSeq strat x = strat x `pseq` return x
 
--- | a name for @Control.Seq.Strategy@, for documetnation only.
+-- | A name for @Control.Seq.Strategy@, for documentation only.
 type SeqStrategy a = Control.Seq.Strategy a
 
 -- --------------------------------------------------------------------------
@@ -383,10 +391,13 @@ r0 x = return x
 --
 rseq :: Strategy a
 #if __GLASGOW_HASKELL__ >= 702
-rseq x = Eval $ \s -> seq# x s
+rseq x = Eval (evaluate x)
 #else
 rseq x = x `seq` return x
 #endif
+-- Staged NOINLINE so we can match on rseq in RULES
+{-# NOINLINE [1] rseq #-}
+
 
 -- Proof of rseq == evalSeq Control.Seq.rseq
 --
@@ -413,9 +424,9 @@ rdeepseq x = do rseq (rnf x); return x
 -- == rdeepseq
 
 -- | 'rpar' sparks its argument (for evaluation in parallel).
-rpar :: a -> Eval a
+rpar :: Strategy a
 #if __GLASGOW_HASKELL__ >= 702
-rpar  x = Eval $ \s -> spark# x s
+rpar  x = Eval $ IO $ \s -> spark# x s
 #else
 rpar  x = case (par# x) of { _ -> Done x }
 #endif
@@ -433,12 +444,7 @@ rpar  x = case (par# x) of { _ -> Done x }
 --
 rparWith :: Strategy a -> Strategy a
 #if __GLASGOW_HASKELL__ >= 702
-rparWith s a = do l <- rpar r; return (case l of Lift x -> x)
-  where r = case s a of
-              Eval f -> case f realWorld# of
-                          (# _, a' #) -> Lift a'
-
-data Lift a = Lift a
+rparWith s = rpar `dot` s
 #else
 rparWith s a = do l <- rpar (s a); return (case l of Done x -> x)
 #endif
@@ -501,6 +507,8 @@ parListN n strat = evalListN n (rparWith strat)
 
 -- | Evaluate the nth element of a list (if there is such) according to
 -- the given strategy.
+-- This nth is 0-based. For example, @[1, 2, 3, 4, 5] `using` evalListNth 4 rseq@
+-- will eval @5@, not @4@.
 -- The spine of the list up to the nth element is evaluated as a side effect.
 evalListNth :: Int -> Strategy a -> Strategy [a]
 evalListNth n strat = evalListSplitAt n r0 (evalListN 1 strat)
@@ -526,25 +534,6 @@ parListChunk n strat xs
 chunk :: Int -> [a] -> [[a]]
 chunk _ [] = []
 chunk n xs = as : chunk n bs where (as,bs) = splitAt n xs
-
--- Non-compositional version of 'parList', evaluating list elements
--- to weak head normal form.
--- Not to be exported; used for optimisation.
-
--- | DEPRECATED: use @'parList' 'rseq'@ instead
-parListWHNF :: Strategy [a]
-parListWHNF xs = go xs `pseq` return xs
-  where -- go :: [a] -> [a]
-           go []     = []
-           go (y:ys) = y `par` go ys
-
--- The non-compositional 'parListWHNF' might be more efficient than its
--- more compositional counterpart; use RULES to do the specialisation.
-
-{-# NOINLINE [1] parList #-}
-{-# RULES
- "parList/rseq" parList rseq = parListWHNF
- #-}
 
 -- --------------------------------------------------------------------------
 -- Convenience
@@ -776,8 +765,6 @@ seqTraverse = evalTraversable
 parTraverse :: Traversable t => Strategy a -> Strategy (t a)
 parTraverse = parTraversable
 
-{-# DEPRECATED parListWHNF "use (parList rseq) instead" #-}
-
 {-# DEPRECATED seqList "renamed to evalList" #-}
 -- | DEPRECATED: renamed to 'evalList'
 seqList :: Strategy a -> Strategy [a]
@@ -827,7 +814,7 @@ Later, during work on the shared-memory implementation of
 parallelism in GHC, we discovered that the original formulation of
 Strategies had some problems, in particular it lead to space leaks
 and difficulties expressing speculative parallelism.  Details are in
-the paper /Runtime Support for Multicore Haskell/ <http://www.haskell.org/~simonmar/papers/multicore-ghc.pdf>.
+the paper /Runtime Support for Multicore Haskell/ <http://community.haskell.org/~simonmar/papers/multicore-ghc.pdf>.
 
 This module has been rewritten in version 2. The main change is to
 the 'Strategy a' type synonym, which was previously @a -> Done@ and
@@ -886,9 +873,9 @@ Version 3 introduced a major overhaul of the API, to match what is
 presented in the paper
 
   /Seq no More: Better Strategies for Parallel Haskell/
-  <http://www.haskell.org/~simonmar/papers/strategies.pdf>
+  <http://community.haskell.org/~simonmar/papers/strategies.pdf>
 
-The major differenes in the API are:
+The major differences in the API are:
 
  * The addition of Sequential strategies ("Control.Seq") as
    a composable means for specifying sequential evaluation.

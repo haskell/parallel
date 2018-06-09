@@ -66,6 +66,9 @@ import Data.Foldable (Foldable, toList)
 #endif
 import Data.Map (Map)
 import qualified Data.Map (toList)
+#if !((__GLASGOW_HASKELL__ >= 711) && MIN_VERSION_array(0,5,1))
+import Data.Ix (Ix)
+#endif
 import Data.Array (Array)
 import qualified Data.Array (bounds, elems)
 
@@ -145,11 +148,19 @@ seqFoldable strat = seqList strat . toList
 
 -- | Evaluate the elements of an array according to the given strategy.
 -- Evaluation of the array bounds may be triggered as a side effect.
+#if (__GLASGOW_HASKELL__ >= 711) && MIN_VERSION_array(0,5,1)
 seqArray :: Strategy a -> Strategy (Array i a)
+#else
+seqArray :: Ix i => Strategy a -> Strategy (Array i a)
+#endif
 seqArray strat = seqList strat . Data.Array.elems
 
 -- | Evaluate the bounds of an array according to the given strategy.
+#if (__GLASGOW_HASKELL__ >= 711) && MIN_VERSION_array(0,5,1)
 seqArrayBounds :: Strategy i -> Strategy (Array i a)
+#else
+seqArrayBounds :: Ix i => Strategy i -> Strategy (Array i a)
+#endif
 seqArrayBounds strat = seqTuple2 strat strat . Data.Array.bounds
 
 -- | Evaluate the keys and values of a map according to the given strategies.
