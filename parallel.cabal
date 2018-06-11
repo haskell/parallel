@@ -52,3 +52,6 @@ library
     if impl(ghc >= 6.11)
         -- To improve parallel performance:
         ghc-options: -feager-blackholing
+
+    if impl(ghc >= 7.2.1)
+        build-depends: ghc-prim

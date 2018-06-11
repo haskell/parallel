@@ -14,3 +14,12 @@ par003 :
 	@echo Running
 	yes abqszzzq 2>/dev/null | head -n 11111 | ./par003 +RTS -N2
 	@echo Done
+
+
+.PHONY: par004
+par004 :
+	@echo Compiling
+	"$(TEST_HC)" -v0 -fforce-recomp --make par004.hs -o par004 -threaded -rtsopts
+	@echo Running
+	./par004 +RTS -N2
+	@echo Done
