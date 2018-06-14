@@ -432,19 +432,33 @@ rpar  x = case (par# x) of { _ -> Done x }
 #endif
 {-# INLINE rpar  #-}
 
--- | instead of saying @rpar `dot` strat@, you can say
--- @rparWith strat@.  Compared to 'rpar', 'rparWith'
+-- | Perform a computation in parallel using a strategy.
 --
---  * does not exit the `Eval` monad
+-- @
+-- rparWith strat x
+-- @
 --
---  * does not have a built-in `rseq`, so for example `rparWith r0`
---    behaves as you might expect (it is a strategy that creates a
---    spark that does no evaluation).
+-- will spark a thread to perform @strat x@ in parallel. Note
+-- that @rparWith strat@ is /not/ the same as @rpar `dot` strat@.
+-- Specifically, @rpar `dot` strat@ always produces a value in
+-- WHNF, while @rparWith strat@ need not.
 --
---
+-- > rparWith r0 = r0
+-- > rparWith rpar = rpar
+-- > rparWith rseq = rpar
 rparWith :: Strategy a -> Strategy a
 #if __GLASGOW_HASKELL__ >= 702
-rparWith s = rpar `dot` s
+-- The intermediate `Lift` box is necessary, in order to avoid a built-in
+-- `rseq` in `rparWith`. In particular, we want rparWith r0 = r0, not
+-- rparWith r0 = rpar.
+rparWith s a = do
+  l <- rpar r
+  return (case l of Lift x -> x)
+
+  where
+    r = runEval (Lift <$> s a)
+
+data Lift a = Lift a
 #else
 rparWith s a = do l <- rpar (s a); return (case l of Done x -> x)
 #endif
