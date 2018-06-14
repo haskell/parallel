@@ -432,22 +432,41 @@ rpar  x = case (par# x) of { _ -> Done x }
 #endif
 {-# INLINE rpar  #-}
 
--- | instead of saying @rpar `dot` strat@, you can say
--- @rparWith strat@.  Compared to 'rpar', 'rparWith'
+-- | Perform a computation in parallel using a strategy.
 --
---  * does not exit the `Eval` monad
+-- @
+-- rparWith strat x
+-- @
 --
---  * does not have a built-in `rseq`, so for example `rparWith r0`
---    behaves as you might expect (it is a strategy that creates a
---    spark that does no evaluation).
+-- will spark @strat x@. Note that @rparWith strat@ is /not/ the
+-- same as @rpar `dot` strat@. Specifically, @rpar `dot` strat@
+-- always sparks a computation to reduce the result of the
+-- strategic computation to WHNF, while @rparWith strat@ need
+-- not.
 --
+-- > rparWith r0 = r0
+-- > rparWith rpar = rpar
+-- > rparWith rseq = rpar
 --
+-- @rparWith rpar x@ creates a spark that immediately creates another
+-- spark to evaluate @x@. We consider this equivalent to @rpar@ because
+-- there isn't any real additional parallelism. However, it is always
+-- less efficient because there's a bit of extra work to create the
+-- first (useless) spark. Similarly, @rparWith r0@ creates a spark
+-- that does precisely nothing. No real parallelism is added, but there
+-- is a bit of extra work to do nothing.
 rparWith :: Strategy a -> Strategy a
-#if __GLASGOW_HASKELL__ >= 702
-rparWith s = rpar `dot` s
-#else
-rparWith s a = do l <- rpar (s a); return (case l of Done x -> x)
-#endif
+-- The intermediate `Lift` box is necessary, in order to avoid a built-in
+-- `rseq` in `rparWith`. In particular, we want rparWith r0 = r0, not
+-- rparWith r0 = rpar.
+rparWith s a = do
+  l <- rpar r
+  return (case l of Lift x -> x)
+
+  where
+    r = runEval (Lift <$> s a)
+
+data Lift a = Lift a
 
 -- --------------------------------------------------------------------------
 -- Strategy combinators for Traversable data types
