@@ -438,10 +438,10 @@ rpar  x = case (par# x) of { _ -> Done x }
 -- rparWith strat x
 -- @
 --
--- will spark a thread to perform @strat x@ in parallel. Note
--- that @rparWith strat@ is /not/ the same as @rpar `dot` strat@.
--- Specifically, @rpar `dot` strat@ always produces a value in
--- WHNF, while @rparWith strat@ need not.
+-- will spark @strat x@. Note that @rparWith strat@ is /not/ the
+-- same as @rpar `dot` strat@. Specifically, @rpar `dot` strat@
+-- always produces a value in WHNF, while @rparWith strat@ need
+-- not.
 --
 -- > rparWith r0 = r0
 -- > rparWith rpar = rpar
