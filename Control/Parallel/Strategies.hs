@@ -447,7 +447,6 @@ rpar  x = case (par# x) of { _ -> Done x }
 -- > rparWith rpar = rpar
 -- > rparWith rseq = rpar
 rparWith :: Strategy a -> Strategy a
-#if __GLASGOW_HASKELL__ >= 702
 -- The intermediate `Lift` box is necessary, in order to avoid a built-in
 -- `rseq` in `rparWith`. In particular, we want rparWith r0 = r0, not
 -- rparWith r0 = rpar.
@@ -459,9 +458,6 @@ rparWith s a = do
     r = runEval (Lift <$> s a)
 
 data Lift a = Lift a
-#else
-rparWith s a = do l <- rpar (s a); return (case l of Done x -> x)
-#endif
 
 -- --------------------------------------------------------------------------
 -- Strategy combinators for Traversable data types
