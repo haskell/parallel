@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns, CPP, MagicHash, UnboxedTuples #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE RankNTypes #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Control.Parallel.Strategies
@@ -118,6 +119,7 @@ module Control.Parallel.Strategies (
        , Eval              -- instances: Monad, Functor, Applicative
        , runEval           -- :: Eval a -> a
        , runEvalIO         -- :: Eval a -> IO a
+       , stToEval          -- :: (forall s. ST s a) -> Eval a
        ,
 
     -- * API History
@@ -149,6 +151,12 @@ import Control.Applicative
 #endif
 import Control.Parallel
 import Control.DeepSeq (NFData(rnf))
+
+#if __GLASGOW_HASKELL__ >= 702
+import Control.Monad.ST.Strict (ST, stToIO)
+#else
+import Control.Monad.ST.Strict (ST, runST)
+#endif
 
 #if MIN_VERSION_base(4,4,0)
 import System.IO.Unsafe (unsafeDupablePerformIO)
@@ -224,6 +232,16 @@ runEval = unsafePerformIO . unEval_
 runEvalIO :: Eval a -> IO a
 runEvalIO = unEval_
 
+-- | Run an 'ST' computation in the 'Eval' monad.
+--
+-- > stToEval m = runST (pure <$> m)
+stToEval :: (forall s. ST s a) -> Eval a
+-- Do not be tempted to allow non-closed ST computations (i.e., to
+-- drop the forall). ST computations using the same mutable
+-- references and arrays could end up running in parallel, stepping
+-- on each other's toes.
+stToEval m = Eval (stToIO m)
+
 #else
 
 data Eval a = Done a
@@ -236,6 +254,15 @@ runEval (Done x) = x
 -- evaluations relative to 'IO' actions.
 runEvalIO :: Eval a -> IO a
 runEvalIO (Done x) = return x
+
+-- | Run an 'ST' computation in the 'Eval' monad.
+--
+-- > stToEval m = runST (pure <$> m)
+stToEval :: (forall s. ST s a) -> Eval a
+-- It must be runST (Eval <$> m) and not Eval (runST m). The
+-- latter will delay the ST computation until its result is
+-- forced to WHNF. We want to run it immediately.
+stToEval m = runST (pure <$> m)
 
 instance Functor Eval where
   fmap = liftM
