@@ -149,6 +149,7 @@ import Control.Applicative
 #endif
 import Control.Parallel
 import Control.DeepSeq (NFData(rnf))
+import Control.Monad.Fix (MonadFix (..))
 
 #if MIN_VERSION_base(4,4,0)
 import System.IO.Unsafe (unsafeDupablePerformIO)
@@ -224,6 +225,36 @@ runEval = unsafePerformIO . unEval_
 runEvalIO :: Eval a -> IO a
 runEvalIO = unEval_
 
+-- We don't use GND to derive MonadFix from the IO instance. The IO instance
+-- has to be very careful to ensure that lazy blackholing doesn't cause IO
+-- actions to be duplicated in case of an infinite loop. This has a small
+-- performance cost. Eval computations are always assumed to be pure, so
+-- duplicating them is okay. What about ST computations embedded in Eval ones?
+-- Those also shouldn't be a problem: the ST computations are "closed", so it's
+-- safe to duplicate them, and the RTS already takes care to avoid resuming
+-- a computation paused by an asynchronous exception in multiple threads.
+-- Lazy ST takes care of itself with noDuplicate#, so we don't really need
+-- to think about it too much.
+--
+-- Note:
+--   mfix f = let res = runEval (Lift <$> f (unLift res))
+--            in case res of Lift r -> return r
+-- data Lift a = Lift a
+instance MonadFix Eval where
+  -- Borrowed from the instance for ST
+  mfix k = Eval $ IO $ \ s ->
+    let ans       = liftEv (k r) s
+        Evret _ r = ans
+    in
+    case ans of Evret s' x -> (# s', x #)
+
+data Evret a = Evret (State# RealWorld) a
+
+-- liftEv is useful when we want a lifted result from an Eval computation. It
+-- is used to implement mfix.
+liftEv :: Eval a -> State# RealWorld -> Evret a
+liftEv (Eval (IO m)) = \s -> case m s of (# s', r #) -> Evret s' r
+
 #else
 
 data Eval a = Done a
@@ -247,6 +278,9 @@ instance Applicative Eval where
 instance Monad Eval where
   return = pure
   Done x >>= k = lazy (k x)   -- Note: pattern 'Done x' makes '>>=' strict
+
+instance MonadFix Eval where
+  mfix f = let r = f (runEval r) in r
 
 {-# RULES "lazy Done" forall x . lazy (Done x) = Done x #-}
 
