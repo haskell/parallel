@@ -378,7 +378,6 @@ type SeqStrategy a = Control.Seq.Strategy a
 --
 r0 :: Strategy a
 r0 x = return x
-{-# INLINE [1] r0 #-}
 
 -- Proof of r0 == evalSeq Control.Seq.r0
 --
@@ -433,7 +432,7 @@ rpar  x = Eval $ IO $ \s -> spark# x s
 #else
 rpar  x = case (par# x) of { _ -> Done x }
 #endif
-{-# INLINE [1] rpar  #-}
+{-# INLINE rpar  #-}
 
 -- | Perform a computation in parallel using a strategy.
 --
@@ -611,10 +610,10 @@ evalBuffer n0 strat xs0 = return (ret xs0 (start n0 xs0))
 -- Avoid unnecessary withStrategy calls in/evalBuffer:
 
 {-# NOINLINE [1] evalBuffer #-}
+{-# NOINLINE [1] parBuffer #-}
 {-# RULES
 "evalBuffer/rseq"  forall n . evalBuffer  n rseq = evalBufferWHNF n
-"evalBuffer/rpar"  forall n . evalBuffer  n rpar = evalBufferWHNF n
-"evalBuffer/r0"    forall n . evalBuffer  n r0 = evalBufferWHNF n
+"parBuffer/rseq" forall n . parBuffer n rseq = buffering n rpar
  #-}
 
 -- | 'parBuffer' is a rolling buffer strategy combinator for lazy
