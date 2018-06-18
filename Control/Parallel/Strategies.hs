@@ -148,132 +148,15 @@ import Data.Traversable
 import Control.Applicative
 #endif
 import Control.Parallel
-import Control.DeepSeq (NFData(rnf))
-
-#if MIN_VERSION_base(4,4,0)
-import System.IO.Unsafe (unsafeDupablePerformIO)
-import Control.Exception (evaluate)
-#else
-import System.IO.Unsafe (unsafePerformIO)
-import Control.Monad
-#endif
+import Control.DeepSeq (NFData)
 
 import qualified Control.Seq
-
-import GHC.Exts
-import GHC.IO (IO (..))
+import qualified Control.Parallel.Strategies.Poly as P
+import Control.Parallel.Strategies.Poly (Eval, runEval, runEvalIO)
 
 infixr 9 `dot`     -- same as (.)
 infixl 0 `using`   -- lowest precedence and associate to the left
 infixl 0 `usingIO` -- lowest precedence and associate to the left
-
--- -----------------------------------------------------------------------------
--- Eval monad (isomorphic to Lift monad from MonadLib 3.6.1)
-
--- | 'Eval' is a Monad that makes it easier to define parallel
--- strategies.  It is a strict identity monad: that is, in
---
---  > m >>= f
---
--- @m@ is evaluated before the result is passed to @f@.
---
---  > instance Monad Eval where
---  >   return  = Done
---  >   m >>= k = case m of
---  >               Done x -> k x
---
--- If you wanted to construct a 'Strategy' for a pair that sparked the
--- first component in parallel and then evaluated the second
--- component, you could write
---
--- > myStrat :: Strategy (a,b)
--- > myStrat (a,b) = do { a' <- rpar a; b' <- rseq b; return (a',b') }
---
--- Alternatively, you could write this more compactly using the
--- Applicative style as
---
--- > myStrat (a,b) = (,) <$> rpar a <*> rseq b
-
--- More examples, using the Applicative instance:
---
--- > parList :: Strategy a -> Strategy [a]
--- > parList strat = traverse (rpar `dot` strat))
---
--- > evalPair :: Strategy a -> Strategy b -> Strategy (a,b)
--- > evalPair f g (a,b) = pure (,) <$> f a <*> g b
---
-
-#if __GLASGOW_HASKELL__ >= 702
-
-newtype Eval a = Eval {unEval_ :: IO a}
-  deriving (Functor, Applicative, Monad)
-  -- GHC 7.2.1 added the seq# and spark# primitives, that we use in
-  -- the Eval monad implementation in order to get the correct
-  -- strictness behaviour.
-
--- | Pull the result out of the monad.
-runEval :: Eval a -> a
-#  if MIN_VERSION_base(4,4,0)
-runEval = unsafeDupablePerformIO . unEval_
-#  else
-runEval = unsafePerformIO . unEval_
-#  endif
-
--- | Run the evaluation in the 'IO' monad. This allows sequencing of
--- evaluations relative to 'IO' actions.
-runEvalIO :: Eval a -> IO a
-runEvalIO = unEval_
-
-#else
-
-data Eval a = Done a
-
--- | Pull the result out of the monad.
-runEval :: Eval a -> a
-runEval (Done x) = x
-
--- | Run the evaluation in the 'IO' monad. This allows sequencing of
--- evaluations relative to 'IO' actions.
-runEvalIO :: Eval a -> IO a
-runEvalIO (Done x) = return x
-
-instance Functor Eval where
-  fmap = liftM
-
-instance Applicative Eval where
-  pure = Done
-  (<*>) = ap
-
-instance Monad Eval where
-  return = pure
-  Done x >>= k = lazy (k x)   -- Note: pattern 'Done x' makes '>>=' strict
-
-{-# RULES "lazy Done" forall x . lazy (Done x) = Done x #-}
-
--- The Eval monad satisfies the monad laws.
---
--- (1) Left identity:
---     return x >>= f ==> Done x >>= f ==> f x
---
--- (2) Right identity:
---     (i)  m >>= return =*> Done u >>= return
---                       ==> return u
---                       ==> Done u <*= m
---     (ii) m >>= return =*> undefined >>= return
---                       ==> undefined <*= m
---
--- (3) Associativity:
---     (i)  (m >>= f) >>= g =*> (Done u >>= f) >>= g
---                          ==> f u >>= g <== (\x -> f x >>= g) u
---                                        <== Done u >>= (\x -> f x >>= g)
---                                        <*= m >>= (\x -> f x >>= g)
---     (ii) (m >>= f) >>= g =*> (undefined >>= f) >>= g
---                          ==> undefined >>= g
---                          ==> undefined <== undefined >>= (\x -> f x >>= g)
---                                        <*= m >>= (\x -> f x >>= g)
-
-#endif
-
 
 -- -----------------------------------------------------------------------------
 -- Strategies
@@ -300,13 +183,13 @@ type Strategy a = a -> Eval a
 -- > x `using` s = runEval (s x)
 --
 using :: a -> Strategy a -> a
-x `using` strat = runEval (strat x)
+using = P.using
 
 -- | evaluate a value using the given 'Strategy'.  This is simply
 -- 'using' with the arguments reversed.
 --
 withStrategy :: Strategy a -> a -> a
-withStrategy = flip using
+withStrategy = P.withStrategy
 
 -- | Evaluate a value using the given 'Strategy' inside the 'IO' monad.  See
 -- also 'runEvalIO'.
@@ -314,13 +197,13 @@ withStrategy = flip using
 -- > x `usingIO` s = runEvalIO (s x)
 --
 usingIO :: a -> Strategy a -> IO a
-x `usingIO` strat = runEvalIO (strat x)
+usingIO = P.usingIO
 
 -- | Evaluate a value using the given 'Strategy' inside the 'IO' monad.  This
 -- is simply 'usingIO' with the arguments reversed.
 --
 withStrategyIO :: Strategy a -> a -> IO a
-withStrategyIO = flip usingIO
+withStrategyIO = P.withStrategyIO
 
 -- | Compose two strategies sequentially.
 -- This is the analogue to function composition on strategies.
@@ -334,27 +217,7 @@ withStrategyIO = flip usingIO
 -- > strat2 `dot` strat1 == strat2 . withStrategy strat1
 --
 dot :: Strategy a -> Strategy a -> Strategy a
-strat2 `dot` strat1 = strat2 . runEval . strat1
-
--- Proof of strat2 `dot` strat1 == strat2 . withStrategy strat1
---
---    strat2 . withStrategy strat1
--- == \x -> strat2 (withStrategy strat1 x)
--- == \x -> strat2 (x `using` strat1)
--- == \x -> strat2 (runEval (strat1 x))
--- == \x -> (strat2 . runEval . strat1) x
--- == strat2 `dot` strat1
-
--- One might be tempted to think that 'dot' is equivalent to '(<=<)',
--- the right-to-left Kleisli composition in the Eval monad, because
--- '(<=<)' can take the type @Strategy a -> Strategy a -> Strategy a@
--- and intuitively does what 'dot' does: First apply the strategy to the
--- right then the one to the left. However, there is a subtle difference
--- in strictness, witnessed by the following example:
---
--- > (r0 `dot` rseq) undefined == Done undefined
--- > (r0 <=< rseq) undefined == undefined
---
+dot = P.dot
 
 -- | Inject a sequential strategy (ie. coerce a sequential strategy
 -- to a general strategy).
@@ -362,7 +225,7 @@ strat2 `dot` strat1 = strat2 . runEval . strat1
 -- Thanks to 'evalSeq', the type @Control.Seq.Strategy a@ is a subtype
 -- of @'Strategy' a@.
 evalSeq :: SeqStrategy a -> Strategy a
-evalSeq strat x = strat x `pseq` return x
+evalSeq = P.evalSeq
 
 -- | A name for @Control.Seq.Strategy@, for documentation only.
 type SeqStrategy a = Control.Seq.Strategy a
@@ -375,79 +238,42 @@ type SeqStrategy a = Control.Seq.Strategy a
 -- > r0 == evalSeq Control.Seq.r0
 --
 r0 :: Strategy a
-r0 x = return x
-
--- Proof of r0 == evalSeq Control.Seq.r0
---
---    evalSeq Control.Seq.r0
--- == \x -> Control.Seq.r0 x `pseq` return x
--- == \x -> Control.Seq.Done `pseq` return x
--- == \x -> return x
--- == r0
+r0 = P.r0
 
 -- | 'rseq' evaluates its argument to weak head normal form.
 --
 -- > rseq == evalSeq Control.Seq.rseq
 --
 rseq :: Strategy a
-#if __GLASGOW_HASKELL__ >= 702
-rseq x = Eval (evaluate x)
-#else
-rseq x = x `seq` return x
-#endif
--- Staged NOINLINE so we can match on rseq in RULES
-{-# NOINLINE [1] rseq #-}
-
-
--- Proof of rseq == evalSeq Control.Seq.rseq
---
---    evalSeq Control.Seq.rseq
--- == \x -> Control.Seq.rseq x `pseq` return x
--- == \x -> (x `seq` Control.Seq.Done) `pseq` return x
--- == \x -> x `pseq` return x
--- == rseq
+rseq = P.rseq
 
 -- | 'rdeepseq' fully evaluates its argument.
 --
 -- > rdeepseq == evalSeq Control.Seq.rdeepseq
 --
 rdeepseq :: NFData a => Strategy a
-rdeepseq x = do rseq (rnf x); return x
-
--- Proof of rdeepseq == evalSeq Control.Seq.rdeepseq
---
---    evalSeq Control.Seq.rdeepseq
--- == \x -> Control.Seq.rdeepseq x `pseq` return x
--- == \x -> (x `deepseq` Control.Seq.Done) `pseq` return x
--- == \x -> (rnf x `seq` Control.Seq.Done) `pseq` return x
--- == \x -> rnf x `pseq` return x
--- == rdeepseq
+rdeepseq = P.rdeepseq
 
 -- | 'rpar' sparks its argument (for evaluation in parallel).
 rpar :: Strategy a
-#if __GLASGOW_HASKELL__ >= 702
-rpar  x = Eval $ IO $ \s -> spark# x s
-#else
-rpar  x = case (par# x) of { _ -> Done x }
-#endif
-{-# INLINE rpar  #-}
+rpar = P.rpar
 
--- | instead of saying @rpar `dot` strat@, you can say
--- @rparWith strat@.  Compared to 'rpar', 'rparWith'
+-- | Perform a computation in parallel using a strategy.
 --
---  * does not exit the `Eval` monad
+-- @
+-- rparWith strat x
+-- @
 --
---  * does not have a built-in `rseq`, so for example `rparWith r0`
---    behaves as you might expect (it is a strategy that creates a
---    spark that does no evaluation).
+-- will spark @strat x@. Note that @rparWith strat@ is /not/ the
+-- same as @rpar `dot` strat@. Specifically, @rpar `dot` strat@
+-- always produces a value in WHNF, while @rparWith strat@ need
+-- not.
 --
---
+-- > rparWith r0 = r0
+-- > rparWith rpar = rpar
+-- > rparWith rseq = rpar
 rparWith :: Strategy a -> Strategy a
-#if __GLASGOW_HASKELL__ >= 702
-rparWith s = rpar `dot` s
-#else
-rparWith s a = do l <- rpar (s a); return (case l of Done x -> x)
-#endif
+rparWith = P.rparWith
 
 -- --------------------------------------------------------------------------
 -- Strategy combinators for Traversable data types
@@ -460,8 +286,7 @@ evalTraversable = traverse
 
 -- | Like 'evalTraversable' but evaluates all elements in parallel.
 parTraversable :: Traversable t => Strategy a -> Strategy (t a)
-parTraversable strat = evalTraversable (rparWith strat)
-{-# INLINE parTraversable #-}
+parTraversable = P.parTraversable
 
 -- --------------------------------------------------------------------------
 -- Strategies for lists
@@ -470,18 +295,11 @@ parTraversable strat = evalTraversable (rparWith strat)
 --  Equivalent to 'evalTraversable' at the list type.
 evalList :: Strategy a -> Strategy [a]
 evalList = evalTraversable
--- Alternative explicitly recursive definition:
--- evalList strat []     = return []
--- evalList strat (x:xs) = strat x >>= \x' ->
---                         evalList strat xs >>= \xs' ->
---                         return (x':xs')
 
 -- | Evaluate each element of a list in parallel according to given strategy.
 --  Equivalent to 'parTraversable' at the list type.
 parList :: Strategy a -> Strategy [a]
 parList = parTraversable
--- Alternative definition via evalList:
--- parList strat = evalList (rparWith strat)
 
 -- | @'evaListSplitAt' n stratPref stratSuff@ evaluates the prefix
 -- (of length @n@) of a list according to @stratPref@ and its the suffix
@@ -527,13 +345,7 @@ parListNth n strat = evalListNth n (rparWith strat)
 -- 'parList'
 --
 parListChunk :: Int -> Strategy a -> Strategy [a]
-parListChunk n strat xs
-  | n <= 1    = parList strat xs
-  | otherwise = concat `fmap` parList (evalList strat) (chunk n xs)
-
-chunk :: Int -> [a] -> [[a]]
-chunk _ [] = []
-chunk n xs = as : chunk n bs where (as,bs) = splitAt n xs
+parListChunk = P.parListChunk
 
 -- --------------------------------------------------------------------------
 -- Convenience
@@ -543,24 +355,10 @@ chunk n xs = as : chunk n bs where (as,bs) = splitAt n xs
 -- > parMap strat f = withStrategy (parList strat) . map f
 --
 parMap :: Strategy b -> (a -> b) -> [a] -> [b]
-parMap strat f = (`using` parList strat) . map f
+parMap = P.parMap
 
 -- --------------------------------------------------------------------------
 -- Strategies for lazy lists
-
--- List-based non-compositional rolling buffer strategy, evaluating list
--- elements to weak head normal form.
--- Not to be exported; used in evalBuffer and for optimisation.
-evalBufferWHNF :: Int -> Strategy [a]
-evalBufferWHNF n0 xs0 = return (ret xs0 (start n0 xs0))
-  where -- ret :: [a] -> [a] -> [a]
-           ret (x:xs) (y:ys) = y `pseq` (x : ret xs ys)
-           ret xs     _      = xs
-
-        -- start :: Int -> [a] -> [a]
-           start 0   ys     = ys
-           start !_n []     = []
-           start !n  (y:ys) = y `pseq` start (n-1) ys
 
 -- | 'evalBuffer' is a rolling buffer strategy combinator for (lazy) lists.
 --
@@ -571,106 +369,63 @@ evalBufferWHNF n0 xs0 = return (ret xs0 (start n0 xs0))
 -- > evalBuffer n r0 == evalBuffer n rseq
 --
 evalBuffer :: Int -> Strategy a -> Strategy [a]
-evalBuffer n strat =  evalBufferWHNF n . map (withStrategy strat)
-
--- Like evalBufferWHNF but sparks the list elements when pushing them
--- into the buffer.
--- Not to be exported; used in parBuffer and for optimisation.
-parBufferWHNF :: Int -> Strategy [a]
-parBufferWHNF n0 xs0 = return (ret xs0 (start n0 xs0))
-  where -- ret :: [a] -> [a] -> [a]
-           ret (x:xs) (y:ys) = y `par` (x : ret xs ys)
-           ret xs     _      = xs
-
-        -- start :: Int -> [a] -> [a]
-           start 0   ys     = ys
-           start !_n []     = []
-           start !n  (y:ys) = y `par` start (n-1) ys
-
+evalBuffer = P.evalBuffer
 
 -- | Like 'evalBuffer' but evaluates the list elements in parallel when
 -- pushing them into the buffer.
 parBuffer :: Int -> Strategy a -> Strategy [a]
-parBuffer n strat = parBufferWHNF n . map (withStrategy strat)
--- Alternative definition via evalBuffer (may compromise firing of RULES):
--- parBuffer n strat = evalBuffer n (rparWith strat)
-
--- Deforest the intermediate list in parBuffer/evalBuffer when it is
--- unnecessary:
-
-{-# NOINLINE [1] evalBuffer #-}
-{-# NOINLINE [1] parBuffer #-}
-{-# RULES
-"evalBuffer/rseq"  forall n . evalBuffer  n rseq = evalBufferWHNF n
-"parBuffer/rseq"   forall n . parBuffer   n rseq = parBufferWHNF  n
- #-}
+parBuffer = P.parBuffer
 
 -- --------------------------------------------------------------------------
 -- Strategies for tuples
 
 evalTuple2 :: Strategy a -> Strategy b -> Strategy (a,b)
-evalTuple2 strat1 strat2 (x1,x2) =
-  pure (,) <*> strat1 x1 <*> strat2 x2
+evalTuple2 = P.evalTuple2
 
 evalTuple3 :: Strategy a -> Strategy b -> Strategy c -> Strategy (a,b,c)
-evalTuple3 strat1 strat2 strat3 (x1,x2,x3) =
-  pure (,,) <*> strat1 x1 <*> strat2 x2 <*> strat3 x3
+evalTuple3 = P.evalTuple3
 
 evalTuple4 :: Strategy a -> Strategy b -> Strategy c -> Strategy d -> Strategy (a,b,c,d)
-evalTuple4 strat1 strat2 strat3 strat4 (x1,x2,x3,x4) =
-  pure (,,,) <*> strat1 x1 <*> strat2 x2 <*> strat3 x3 <*> strat4 x4
+evalTuple4 = P.evalTuple4
 
 evalTuple5 :: Strategy a -> Strategy b -> Strategy c -> Strategy d -> Strategy e -> Strategy (a,b,c,d,e)
-evalTuple5 strat1 strat2 strat3 strat4 strat5 (x1,x2,x3,x4,x5) =
-  pure (,,,,) <*> strat1 x1 <*> strat2 x2 <*> strat3 x3 <*> strat4 x4 <*> strat5 x5
+evalTuple5 = P.evalTuple5
 
 evalTuple6 :: Strategy a -> Strategy b -> Strategy c -> Strategy d -> Strategy e -> Strategy f -> Strategy (a,b,c,d,e,f)
-evalTuple6 strat1 strat2 strat3 strat4 strat5 strat6 (x1,x2,x3,x4,x5,x6) =
-  pure (,,,,,) <*> strat1 x1 <*> strat2 x2 <*> strat3 x3 <*> strat4 x4 <*> strat5 x5 <*> strat6 x6
+evalTuple6 = P.evalTuple6
 
 evalTuple7 :: Strategy a -> Strategy b -> Strategy c -> Strategy d -> Strategy e -> Strategy f -> Strategy g -> Strategy (a,b,c,d,e,f,g)
-evalTuple7 strat1 strat2 strat3 strat4 strat5 strat6 strat7 (x1,x2,x3,x4,x5,x6,x7) =
-  pure (,,,,,,) <*> strat1 x1 <*> strat2 x2 <*> strat3 x3 <*> strat4 x4 <*> strat5 x5 <*> strat6 x6 <*> strat7 x7
+evalTuple7 = P.evalTuple7
 
 evalTuple8 :: Strategy a -> Strategy b -> Strategy c -> Strategy d -> Strategy e -> Strategy f -> Strategy g -> Strategy h -> Strategy (a,b,c,d,e,f,g,h)
-evalTuple8 strat1 strat2 strat3 strat4 strat5 strat6 strat7 strat8 (x1,x2,x3,x4,x5,x6,x7,x8) =
-  pure (,,,,,,,) <*> strat1 x1 <*> strat2 x2 <*> strat3 x3 <*> strat4 x4 <*> strat5 x5 <*> strat6 x6 <*> strat7 x7 <*> strat8 x8
+evalTuple8 = P.evalTuple8
 
 evalTuple9 :: Strategy a -> Strategy b -> Strategy c -> Strategy d -> Strategy e -> Strategy f -> Strategy g -> Strategy h -> Strategy i -> Strategy (a,b,c,d,e,f,g,h,i)
-evalTuple9 strat1 strat2 strat3 strat4 strat5 strat6 strat7 strat8 strat9 (x1,x2,x3,x4,x5,x6,x7,x8,x9) =
-  pure (,,,,,,,,) <*> strat1 x1 <*> strat2 x2 <*> strat3 x3 <*> strat4 x4 <*> strat5 x5 <*> strat6 x6 <*> strat7 x7 <*> strat8 x8 <*> strat9 x9
+evalTuple9 = P.evalTuple9
 
 parTuple2 :: Strategy a -> Strategy b -> Strategy (a,b)
-parTuple2 strat1 strat2 =
-  evalTuple2 (rparWith strat1) (rparWith strat2)
+parTuple2 = P.parTuple2
 
 parTuple3 :: Strategy a -> Strategy b -> Strategy c -> Strategy (a,b,c)
-parTuple3 strat1 strat2 strat3 =
-  evalTuple3 (rparWith strat1) (rparWith strat2) (rparWith strat3)
+parTuple3 = P.parTuple3
 
 parTuple4 :: Strategy a -> Strategy b -> Strategy c -> Strategy d -> Strategy (a,b,c,d)
-parTuple4 strat1 strat2 strat3 strat4 =
-  evalTuple4 (rparWith strat1) (rparWith strat2) (rparWith strat3) (rparWith strat4)
+parTuple4 = P.parTuple4
 
 parTuple5 :: Strategy a -> Strategy b -> Strategy c -> Strategy d -> Strategy e -> Strategy (a,b,c,d,e)
-parTuple5 strat1 strat2 strat3 strat4 strat5 =
-  evalTuple5 (rparWith strat1) (rparWith strat2) (rparWith strat3) (rparWith strat4) (rparWith strat5)
+parTuple5 = P.parTuple5
 
 parTuple6 :: Strategy a -> Strategy b -> Strategy c -> Strategy d -> Strategy e -> Strategy f -> Strategy (a,b,c,d,e,f)
-parTuple6 strat1 strat2 strat3 strat4 strat5 strat6 =
-  evalTuple6 (rparWith strat1) (rparWith strat2) (rparWith strat3) (rparWith strat4) (rparWith strat5) (rparWith strat6)
+parTuple6 = P.parTuple6
 
 parTuple7 :: Strategy a -> Strategy b -> Strategy c -> Strategy d -> Strategy e -> Strategy f -> Strategy g -> Strategy (a,b,c,d,e,f,g)
-parTuple7 strat1 strat2 strat3 strat4 strat5 strat6 strat7 =
-  evalTuple7 (rparWith strat1) (rparWith strat2) (rparWith strat3) (rparWith strat4) (rparWith strat5) (rparWith strat6) (rparWith strat7)
+parTuple7 = P.parTuple7
 
 parTuple8 :: Strategy a -> Strategy b -> Strategy c -> Strategy d -> Strategy e -> Strategy f -> Strategy g -> Strategy h -> Strategy (a,b,c,d,e,f,g,h)
-parTuple8 strat1 strat2 strat3 strat4 strat5 strat6 strat7 strat8 =
-  evalTuple8 (rparWith strat1) (rparWith strat2) (rparWith strat3) (rparWith strat4) (rparWith strat5) (rparWith strat6) (rparWith strat7) (rparWith strat8)
+parTuple8 = P.parTuple8
 
 parTuple9 :: Strategy a -> Strategy b -> Strategy c -> Strategy d -> Strategy e -> Strategy f -> Strategy g -> Strategy h -> Strategy i -> Strategy (a,b,c,d,e,f,g,h,i)
-parTuple9 strat1 strat2 strat3 strat4 strat5 strat6 strat7 strat8 strat9 =
-  evalTuple9 (rparWith strat1) (rparWith strat2) (rparWith strat3) (rparWith strat4) (rparWith strat5) (rparWith strat6) (rparWith strat7) (rparWith strat8) (rparWith strat9)
+parTuple9 = P.parTuple9
 
 -- --------------------------------------------------------------------------
 -- Strategic function application
@@ -681,6 +436,10 @@ These are very handy when writing pipeline parallelism asa sequence of
 in this case. The separation of algorithm from strategy is achieved by
 allowing strategies only as second arguments to @$|@ and @$||@.
 -}
+
+-- NOTE: We don't define these in terms of the operators
+-- in Control.Parallel.Strategies.Poly because the latter have somewhat
+-- different strictness properties.
 
 -- | Sequential function application. The argument is evaluated using
 --   the given strategy before it is given to the function.

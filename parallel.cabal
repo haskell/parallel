@@ -40,6 +40,7 @@ library
         Control.Seq
         Control.Parallel
         Control.Parallel.Strategies
+        Control.Parallel.Strategies.Poly
 
     build-depends:
         array      >= 0.3 && < 0.6,
