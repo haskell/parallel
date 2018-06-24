@@ -9,14 +9,10 @@ import System.IO.Unsafe (unsafePerformIO)
 
 import Control.Parallel.Strategies
 
-data LazyBox a = LazyBox a
-
 main = do
   -- Create spark, that must *not* evaluate printWhenEvaluated
-  LazyBox printWhenEvaluated <- evaluate $ runEval $ do
-    let printWhenEvaluated = unsafePerformIO $ putStrLn "Must be printed at the end."
-    sparkedResult <- rparWith r0 printWhenEvaluated
-    return $ LazyBox sparkedResult
+  printWhenEvaluated <- withStrategyIO (rparWith r0) $
+    unsafePerformIO (putStrLn "Must be printed at the end.")
 
   -- Give the run time system enough time to evaluate the spark (~0.1s)
   threadDelay $ 10^5
