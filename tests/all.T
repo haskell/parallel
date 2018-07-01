@@ -15,3 +15,6 @@ test('T2185', [when(fast(), skip), reqlib('parallel'),
 
 test('rparWith_r0', only_ways(['threaded1', 'threaded2']),
                 compile_and_run, ['-package parallel'])
+
+test('pareval', only_ways(['threaded1', 'threaded2']),
+                compile_and_run, ['-package parallel'])
