@@ -116,6 +116,7 @@ module Control.Parallel.Strategies (
 
          -- * For Strategy programmers
        , Eval              -- instances: Monad, Functor, Applicative
+       , parEval           -- :: Eval a -> Eval a
        , runEval           -- :: Eval a -> a
        , runEvalIO         -- :: Eval a -> IO a
        ,
@@ -490,15 +491,31 @@ rpar  x = case (par# x) of { _ -> Done x }
 -- that does precisely nothing. No real parallelism is added, but there
 -- is a bit of extra work to do nothing.
 rparWith :: Strategy a -> Strategy a
+rparWith strat = parEval . strat
+
+-- | 'parEval' sparks the computation of its argument for evaluation in
+-- parallel. Unlike @'rpar' . 'runEval'@, 'parEval'
+--
+--  * does not exit the `Eval` monad
+--
+--  * does not have a built-in `rseq`, so for example @'parEval' ('r0' x)@
+--    behaves as you might expect (it creates a spark that does no
+--    evaluation).
+--
+-- It is related to 'rparWith' by the following equality:
+--
+-- > parEval . strat = rparWith strat
+--
+parEval :: Eval a -> Eval a
 -- The intermediate `Lift` box is necessary, in order to avoid a built-in
--- `rseq` in `rparWith`. In particular, we want rparWith r0 = r0, not
--- rparWith r0 = rpar.
-rparWith s a = do
+-- `rseq` in `parEval`. In particular, we want @parEval . r0 = r0@, not
+-- @parEval . r0 = rpar@.
+parEval m = do
   l <- rpar r
   return (case l of Lift x -> x)
 
   where
-    r = runEval (Lift <$> s a)
+    r = runEval (Lift <$> m)
 
 data Lift a = Lift a
 
