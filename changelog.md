@@ -1,5 +1,11 @@
 # Changelog for [`parallel` package](http://hackage.haskell.org/package/parallel)
 
+## 3.2.2.0  *Jul 2018*
+
+  - bump dependency bounds
+  - add parEval
+  - add a MonadFix instance
+
 ## 3.2.1.1  *Apr 2017*
 
   - Compatibility with `deepseq-1.4.3`
