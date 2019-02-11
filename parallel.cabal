@@ -43,7 +43,7 @@ library
 
     build-depends:
         array      >= 0.3 && < 0.6,
-        base       >= 4.3 && < 4.13,
+        base       >= 4.3 && < 4.14,
         containers >= 0.4 && < 0.7,
         deepseq    >= 1.1 && < 1.5
 
