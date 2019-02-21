@@ -463,7 +463,7 @@ rpar :: Strategy a
 #if __GLASGOW_HASKELL__ >= 702
 rpar  x = Eval $ IO $ \s -> spark# x s
 #else
-rpar  x = case (par# x) of { _ -> Done x }
+rpar  x = case spark# x of { _ -> Done x }
 #endif
 {-# INLINE rpar  #-}
 
