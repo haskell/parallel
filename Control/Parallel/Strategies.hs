@@ -62,6 +62,7 @@ module Control.Parallel.Strategies (
          -- * Strategies for traversable data types
        , evalTraversable   -- :: Traversable t => Strategy a -> Strategy (t a)
        , parTraversable
+       , parFmap
 
          -- * Strategies for lists
        , evalList          -- :: Strategy a -> Strategy [a]
@@ -614,6 +615,14 @@ chunk n xs = as : chunk n bs where (as,bs) = splitAt n xs
 --
 parMap :: Strategy b -> (a -> b) -> [a] -> [b]
 parMap strat f = (`using` parList strat) . map f
+
+
+-- | A generalisation of 'parMap' using  'parTraversable' and `fmap`:
+--
+-- > parFmap strat g = withStrategy (parTraversable strat) . fmap f
+--
+parFmap :: Traversable t => Strategy b -> (a -> b) -> t a -> t b
+parFmap strat f = (`using` parTraversable strat) . fmap f
 
 -- --------------------------------------------------------------------------
 -- Strategies for lazy lists
