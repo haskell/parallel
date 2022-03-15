@@ -392,7 +392,7 @@ strat2 `dot` strat1 = strat2 . runEval . strat1
 -- > (r0 <=< rseq) undefined == undefined
 --
 
--- | Inject a sequential strategy (ie. coerce a sequential strategy
+-- | Inject a sequential strategy (i.e., coerce a sequential strategy
 -- to a general strategy).
 --
 -- Thanks to 'evalSeq', the type @Control.Seq.Strategy a@ is a subtype
@@ -806,7 +806,7 @@ f $|| s = \ x -> let z = x `using` s in z `par` f z
 -- Old/deprecated stuff
 
 {-# DEPRECATED Done "The Strategy type is now a -> Eval a, not a -> Done" #-}
--- | DEPRECCATED: replaced by the 'Eval' monad
+-- | DEPRECATED: replaced by the 'Eval' monad
 type Done = ()
 
 {-# DEPRECATED demanding "Use pseq or $| instead" #-}
