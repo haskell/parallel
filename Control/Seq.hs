@@ -39,7 +39,7 @@ module Control.Seq
 
          -- * Sequential strategies for foldable data types
        , seqFoldable      -- :: Foldable t => Strategy a -> Strategy (t a)
-       , seqBifoldable    -- :: Bifoldable p => Strategy a -> Stragety b -> Strategy (p a b)
+       , seqBifoldable    -- :: Bifoldable p => Strategy a -> Strategy b -> Strategy (p a b)
        , seqMap           -- :: Strategy k -> Strategy v -> Strategy (Map k v)
        , seqArray         -- :: Ix i => Strategy a -> Strategy (Array i a)
        , seqArrayBounds   -- :: Ix i => Strategy i -> Strategy (Array i a)
