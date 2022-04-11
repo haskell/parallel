@@ -39,6 +39,7 @@ module Control.Seq
 
          -- * Sequential strategies for foldable data types
        , seqFoldable      -- :: Foldable t => Strategy a -> Strategy (t a)
+       , seqBifoldable    -- :: Bifoldable p => Strategy a -> Stragety b -> Strategy (p a b)
        , seqMap           -- :: Strategy k -> Strategy v -> Strategy (Map k v)
        , seqArray         -- :: Ix i => Strategy a -> Strategy (Array i a)
        , seqArrayBounds   -- :: Ix i => Strategy i -> Strategy (Array i a)
@@ -64,6 +65,7 @@ import Data.Foldable (toList)
 #else
 import Data.Foldable (Foldable, toList)
 #endif
+import Data.Bifoldable (Bifoldable (bifoldMap))
 import Data.Map (Map)
 import qualified Data.Map (toList)
 #if !((__GLASGOW_HASKELL__ >= 711) && MIN_VERSION_array(0,5,1))
@@ -145,6 +147,11 @@ seqFoldable strat = seqList strat . toList
 -- seqFoldable strat = foldl' (const strat) ()
 
 {-# SPECIALISE seqFoldable :: Strategy a -> Strategy [a] #-}
+
+-- | Evaluate the elements of a bifoldable data structure according to
+-- the given strategy
+seqBifoldable :: Bifoldable p => Strategy a -> Strategy b -> Strategy (p a b)
+seqBifoldable = bifoldMap
 
 -- | Evaluate the elements of an array according to the given strategy.
 -- Evaluation of the array bounds may be triggered as a side effect.
