@@ -10,7 +10,15 @@
 -- Stability   :  stable
 -- Portability :  portable
 --
--- Parallel Constructs
+-- Parallel constructs.
+--
+-- A common pattern to evaluate two values in parallel is:
+--
+-- > x `par` y `pseq` someFunc x y
+--
+-- The effect of this pattern is to cause @x@ to be evaluated in
+-- parallel with @y@. When the evaluation of @y@ is complete, computation
+-- proceeds by evaluating @someFunc x y@.
 --
 -----------------------------------------------------------------------------
 
