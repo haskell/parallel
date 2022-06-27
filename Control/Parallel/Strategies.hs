@@ -10,25 +10,25 @@
 -- Stability   :  experimental
 -- Portability :  portable
 --
--- Parallel Evaluation Strategies, or Strategies for short, provide
+-- Parallel evaluation strategies, or strategies for short, provide
 -- ways to express parallel computations.  Strategies have the following
 -- key features:
 --
 --  * Strategies express /deterministic parallelism/:
 --    the result of the program is unaffected by evaluating in parallel.
---    The parallel tasks evaluated by a Strategy may have no side effects.
+--    The parallel tasks evaluated by a strategy may have no side effects.
 --    For non-deterministic parallel programming, see "Control.Concurrent".
 --
 --  * Strategies let you separate the description of the parallelism from the
 --    logic of your program, enabling modular parallelism.  The basic idea
 --    is to build a lazy data structure representing the computation, and
---    then write a Strategy that describes how to traverse the data structure
+--    then write a strategy that describes how to traverse the data structure
 --    and evaluate components of it sequentially or in parallel.
 --
 --  * Strategies are /compositional/: larger strategies can be built
 --    by gluing together smaller ones.
 --
---  * 'Monad' and 'Applicative' instances are provided, for quickly building
+--  * The 'Eval' monad is provided, for quickly building
 --    strategies that involve traversing structures in a regular way.
 --
 -- For API history and changes in this release, see "Control.Parallel.Strategies#history".
@@ -141,7 +141,7 @@ module Control.Parallel.Strategies (
 
     -- * For API completeness
 
-    -- | so users of 'rdeepseq' aren't required to import Control.DeepSeq:
+    -- | So that users of 'rdeepseq' aren't required to import @Control.DeepSeq@:
     NFData
   ) where
 
@@ -173,8 +173,8 @@ infixl 0 `usingIO` -- lowest precedence and associate to the left
 -- -----------------------------------------------------------------------------
 -- Eval monad (isomorphic to Lift monad from MonadLib 3.6.1)
 
--- | 'Eval' is a Monad that makes it easier to define parallel
--- strategies.  It is a strict identity monad: that is, in
+-- | 'Eval' is a monad that makes it easier to define parallel
+-- strategies.  It is a strict identity monad, that is, in
 --
 --  > m >>= f
 --
@@ -196,7 +196,7 @@ infixl 0 `usingIO` -- lowest precedence and associate to the left
 -- Applicative style as
 --
 -- > myStrat (a,b) = (,) <$> rpar a <*> rseq b
-
+--
 -- More examples, using the Applicative instance:
 --
 -- > parList :: Strategy a -> Strategy [a]
@@ -214,7 +214,7 @@ newtype Eval a = Eval {unEval_ :: IO a}
   -- the Eval monad implementation in order to get the correct
   -- strictness behaviour.
 
--- | Pull the result out of the monad.
+-- | Run the evaluation.
 runEval :: Eval a -> a
 #  if MIN_VERSION_base(4,4,0)
 runEval = unsafeDupablePerformIO . unEval_
@@ -338,7 +338,7 @@ type Strategy a = a -> Eval a
 using :: a -> Strategy a -> a
 x `using` strat = runEval (strat x)
 
--- | evaluate a value using the given 'Strategy'.  This is simply
+-- | Evaluate a value using the given 'Strategy'.  This is simply
 -- 'using' with the arguments reversed.
 --
 withStrategy :: Strategy a -> a -> a
@@ -395,7 +395,7 @@ strat2 `dot` strat1 = strat2 . runEval . strat1
 -- | Inject a sequential strategy (i.e., coerce a sequential strategy
 -- to a general strategy).
 --
--- Thanks to 'evalSeq', the type @Control.Seq.Strategy a@ is a subtype
+-- Thanks to 'evalSeq', the type @'SeqStrategy' a@ is a subtype
 -- of @'Strategy' a@.
 evalSeq :: SeqStrategy a -> Strategy a
 evalSeq strat x = strat x `pseq` return x
@@ -406,7 +406,7 @@ type SeqStrategy a = Control.Seq.Strategy a
 -- --------------------------------------------------------------------------
 -- Basic strategies (some imported from SeqStrategies)
 
--- | 'r0' performs *no* evaluation.
+-- | 'r0' performs /no/ evaluation.
 --
 -- > r0 == evalSeq Control.Seq.r0
 --
@@ -475,7 +475,7 @@ rpar  x = case (par# x) of { _ -> Done x }
 -- @
 --
 -- will spark @strat x@. Note that @rparWith strat@ is /not/ the
--- same as @rpar `dot` strat@. Specifically, @rpar `dot` strat@
+-- same as @rpar ``dot`` strat@. Specifically, @rpar ``dot`` strat@
 -- always sparks a computation to reduce the result of the
 -- strategic computation to WHNF, while @rparWith strat@ need
 -- not.
@@ -529,7 +529,7 @@ evalTraversable :: Traversable t => Strategy a -> Strategy (t a)
 evalTraversable = traverse
 {-# INLINE evalTraversable #-}
 
--- | Like 'evalTraversable' but evaluates all elements in parallel.
+-- | Like 'evalTraversable', but evaluates all elements in parallel.
 parTraversable :: Traversable t => Strategy a -> Strategy (t a)
 parTraversable strat = evalTraversable (rparWith strat)
 {-# INLINE parTraversable #-}
@@ -564,7 +564,7 @@ evalListSplitAt n stratPref stratSuff xs
     stratSuff zs >>= \zs' ->
     return (ys' ++ zs')
 
--- | Like 'evalListSplitAt' but evaluates both sublists in parallel.
+-- | Like 'evalListSplitAt', but evaluates both sublists in parallel.
 parListSplitAt :: Int -> Strategy [a] -> Strategy [a] -> Strategy [a]
 parListSplitAt n stratPref stratSuff = evalListSplitAt n (rparWith stratPref) (rparWith stratSuff)
 
@@ -572,19 +572,19 @@ parListSplitAt n stratPref stratSuff = evalListSplitAt n (rparWith stratPref) (r
 evalListN :: Int -> Strategy a -> Strategy [a]
 evalListN n strat = evalListSplitAt n (evalList strat) r0
 
--- | Like 'evalListN' but evaluates the first n elements in parallel.
+-- | Like 'evalListN', but evaluates the first n elements in parallel.
 parListN :: Int -> Strategy a -> Strategy [a]
 parListN n strat = evalListN n (rparWith strat)
 
 -- | Evaluate the nth element of a list (if there is such) according to
 -- the given strategy.
--- This nth is 0-based. For example, @[1, 2, 3, 4, 5] `using` evalListNth 4 rseq@
+-- This nth is 0-based. For example, @[1, 2, 3, 4, 5] ``using`` evalListNth 4 rseq@
 -- will eval @5@, not @4@.
 -- The spine of the list up to the nth element is evaluated as a side effect.
 evalListNth :: Int -> Strategy a -> Strategy [a]
 evalListNth n strat = evalListSplitAt n r0 (evalListN 1 strat)
 
--- | Like 'evalListN' but evaluates the nth element in parallel.
+-- | Like 'evalListNth', but evaluates the nth element in parallel.
 parListNth :: Int -> Strategy a -> Strategy [a]
 parListNth n strat = evalListNth n (rparWith strat)
 
@@ -642,6 +642,8 @@ evalBufferWHNF n0 xs0 = return (ret xs0 (start n0 xs0))
            start !n  (y:ys) = y `pseq` start (n-1) ys
 
 -- | 'evalBuffer' is a rolling buffer strategy combinator for (lazy) lists.
+-- Evaluation of the ith element induces evaluation of the (i+n)th element,
+-- with the first n elements being evaluated immediately.
 --
 -- 'evalBuffer' is not as compositional as the type suggests. In fact,
 -- it evaluates list elements at least to weak head normal form,
@@ -652,7 +654,7 @@ evalBufferWHNF n0 xs0 = return (ret xs0 (start n0 xs0))
 evalBuffer :: Int -> Strategy a -> Strategy [a]
 evalBuffer n strat =  evalBufferWHNF n . map (withStrategy strat)
 
--- Like evalBufferWHNF but sparks the list elements when pushing them
+-- Like evalBufferWHNF, but sparks the list elements when pushing them
 -- into the buffer.
 -- Not to be exported; used in parBuffer and for optimisation.
 parBufferWHNF :: Int -> Strategy [a]
@@ -667,8 +669,12 @@ parBufferWHNF n0 xs0 = return (ret xs0 (start n0 xs0))
            start !n  (y:ys) = y `par` start (n-1) ys
 
 
--- | Like 'evalBuffer' but evaluates the list elements in parallel when
+-- | Like 'evalBuffer', but evaluates the list elements in parallel when
 -- pushing them into the buffer.
+-- Evaluation of the ith element induces parallel evaluation of the (i+n)th element,
+-- with the first n elements being evaluated in parallel immediately.
+--
+-- > parBuffer n strat = evalBuffer n (rparWith strat)
 parBuffer :: Int -> Strategy a -> Strategy [a]
 parBuffer n strat = parBufferWHNF n . map (withStrategy strat)
 -- Alternative definition via evalBuffer (may compromise firing of RULES):
@@ -755,14 +761,14 @@ parTuple9 strat1 strat2 strat3 strat4 strat5 strat6 strat7 strat8 strat9 =
 -- Strategic function application
 
 {-
-These are very handy when writing pipeline parallelism asa sequence of
+These are very handy when writing pipeline parallelism as a sequence of
 @$@, @$|@ and @$||@'s. There is no need of naming intermediate values
 in this case. The separation of algorithm from strategy is achieved by
 allowing strategies only as second arguments to @$|@ and @$||@.
 -}
 
 -- | Sequential function application. The argument is evaluated using
---   the given strategy before it is given to the function.
+-- the given strategy before it is given to the function.
 ($|) :: (a -> b) -> Strategy a -> a -> b
 f $| s  = \ x -> let z = x `using` s in z `pseq` f z
 
@@ -806,71 +812,57 @@ f $|| s = \ x -> let z = x `using` s in z `par` f z
 -- Old/deprecated stuff
 
 {-# DEPRECATED Done "The Strategy type is now a -> Eval a, not a -> Done" #-}
--- | DEPRECATED: replaced by the 'Eval' monad
 type Done = ()
 
-{-# DEPRECATED demanding "Use pseq or $| instead" #-}
--- | DEPRECATED: Use 'pseq' or '$|' instead
+{-# DEPRECATED demanding "Use 'pseq' or '$|' instead" #-}
 demanding :: a -> Done -> a
 demanding = flip pseq
 
-{-# DEPRECATED sparking "Use par or $|| instead" #-}
--- | DEPRECATED: Use 'par' or '$||' instead
+{-# DEPRECATED sparking "Use 'par' or '$||' instead" #-}
 sparking :: a -> Done -> a
 sparking  = flip par
 
-{-# DEPRECATED (>|) "Use pseq or $| instead" #-}
--- | DEPRECATED: Use 'pseq' or '$|' instead
+{-# DEPRECATED (>|) "Use 'pseq' or '$|' instead" #-}
 (>|) :: Done -> Done -> Done
 (>|) = Prelude.seq
 
-{-# DEPRECATED (>||) "Use par or $|| instead" #-}
--- | DEPRECATED: Use 'par' or '$||' instead
+{-# DEPRECATED (>||) "Use 'par' or '$||' instead" #-}
 (>||) :: Done -> Done -> Done
 (>||) = par
 
-{-# DEPRECATED rwhnf "renamed to rseq" #-}
--- | DEPRECATED: renamed to 'rseq'
+{-# DEPRECATED rwhnf "renamed to 'rseq'" #-}
 rwhnf :: Strategy a
 rwhnf = rseq
 
-{-# DEPRECATED seqTraverse "renamed to evalTraversable" #-}
--- | DEPRECATED: renamed to 'evalTraversable'
+{-# DEPRECATED seqTraverse "renamed to 'evalTraversable'" #-}
 seqTraverse :: Traversable t => Strategy a -> Strategy (t a)
 seqTraverse = evalTraversable
 
-{-# DEPRECATED parTraverse "renamed to parTraversable" #-}
--- | DEPRECATED: renamed to 'parTraversable'
+{-# DEPRECATED parTraverse "renamed to 'parTraversable'" #-}
 parTraverse :: Traversable t => Strategy a -> Strategy (t a)
 parTraverse = parTraversable
 
-{-# DEPRECATED seqList "renamed to evalList" #-}
--- | DEPRECATED: renamed to 'evalList'
+{-# DEPRECATED seqList "renamed to 'evalList'" #-}
 seqList :: Strategy a -> Strategy [a]
 seqList = evalList
 
-{-# DEPRECATED seqPair "renamed to evalTuple2" #-}
--- | DEPRECATED: renamed to 'evalTuple2'
+{-# DEPRECATED seqPair "renamed to 'evalTuple2'" #-}
 seqPair :: Strategy a -> Strategy b -> Strategy (a,b)
 seqPair = evalTuple2
 
-{-# DEPRECATED parPair "renamed to parTuple2" #-}
--- | DEPRECATED: renamed to 'parTuple2'
+{-# DEPRECATED parPair "renamed to 'parTuple2'" #-}
 parPair :: Strategy a -> Strategy b -> Strategy (a,b)
 parPair = parTuple2
 
-{-# DEPRECATED seqTriple "renamed to evalTuple3" #-}
--- | DEPRECATED: renamed to 'evalTuple3'
+{-# DEPRECATED seqTriple "renamed to 'evalTuple3'" #-}
 seqTriple :: Strategy a -> Strategy b -> Strategy c -> Strategy (a,b,c)
 seqTriple = evalTuple3
 
-{-# DEPRECATED parTriple "renamed to parTuple3" #-}
--- | DEPRECATED: renamed to 'parTuple3'
+{-# DEPRECATED parTriple "renamed to 'parTuple3'" #-}
 parTriple :: Strategy a -> Strategy b -> Strategy c -> Strategy (a,b,c)
 parTriple = parTuple3
 
-{-# DEPRECATED unEval "renamed to runEval" #-}
--- | DEPRECATED: renamed to 'runEval'
+{-# DEPRECATED unEval "renamed to 'runEval'" #-}
 unEval :: Eval a -> a
 unEval = runEval
 
@@ -881,22 +873,22 @@ summary of how the current design evolved, and is mostly of
 interest to those who are familiar with an older version, or need
 to adapt old code to use the newer API.
 
-Version 1.x
+=== Version 1.x
 
-  The original Strategies design is described in /Algorithm + Strategy = Parallelism/ <http://www.macs.hw.ac.uk/~dsg/gph/papers/html/Strategies/strategies.html>
+  The original Strategies design is described in [/Algorithm + Strategy = Parallelism/](https://www.macs.hw.ac.uk/~dsg/gph/papers/html/Strategies/strategies.html)
   and the code was written by
      Phil Trinder, Hans-Wolfgang Loidl, Kevin Hammond et al.
 
-Version 2.x
+=== Version 2.x
 
 Later, during work on the shared-memory implementation of
 parallelism in GHC, we discovered that the original formulation of
 Strategies had some problems, in particular it lead to space leaks
 and difficulties expressing speculative parallelism.  Details are in
-the paper /Runtime Support for Multicore Haskell/ <http://community.haskell.org/~simonmar/papers/multicore-ghc.pdf>.
+the paper [/Runtime Support for Multicore Haskell/](https://www.microsoft.com/en-us/research/wp-content/uploads/2009/09/multicore-ghc.pdf).
 
 This module has been rewritten in version 2. The main change is to
-the 'Strategy a' type synonym, which was previously @a -> Done@ and
+the @'Strategy' a@ type synonym, which was previously @a -> Done@ and
 is now @a -> Eval a@.  This change helps to fix the space leak described
 in \"Runtime Support for Multicore Haskell\".  The problem is that
 the runtime will currently retain the memory referenced by all
@@ -909,7 +901,7 @@ so that the application can evaluate each spark created by the
 
 The simple rule is this: you /must/ use the result of applying
 a 'Strategy' if the strategy creates parallel sparks, and you
-should probably discard the the original value.  If you don't
+should probably discard the original value.  If you don't
 do this, currently it may result in a space leak.  In the
 future (GHC 6.14), it will probably result in lost parallelism
 instead, as we plan to change GHC so that unreferenced sparks
@@ -921,7 +913,7 @@ would be broken by the change in policy).
 The other changes in version 2.x are:
 
   * Strategies can now be defined using a convenient Monad/Applicative
-    type, 'Eval'.  e.g. @parList s = traverse (Par . (``using`` s))@
+    type, 'Eval'.  e.g. @parList s = traverse (rpar . (``using`` s))@
 
   * 'parList' has been generalised to 'parTraverse', which works on
     any 'Traversable' type, and similarly 'seqList' has been generalised
@@ -935,7 +927,7 @@ The other changes in version 2.x are:
     package.  Note that since the 'Strategy' type changed, 'rnf'
     is no longer a 'Strategy': use 'rdeepseq' instead.
 
-Version 2.1 moved NFData into a separate package, @deepseq@.
+Version 2.1 moved 'NFData' into a separate package, @deepseq@.
 
 Version 2.2 changed the type of Strategy to @a -> Eval a@, and
 re-introduced the @r0@ strategy which was missing in version 2.1.
@@ -946,22 +938,24 @@ improvements and refactorings are thanks to Patrick Maier who
 noticed that @Eval@ didn't satisfy the monad laws, and that a
 simpler version would fix that problem.
 
-(version 2.3 was not released on Hackage).
+(Version 2.3 was not released on Hackage.)
+
+=== Version 3.x
 
 Version 3 introduced a major overhaul of the API, to match what is
 presented in the paper
 
-  /Seq no More: Better Strategies for Parallel Haskell/
-  <http://community.haskell.org/~simonmar/papers/strategies.pdf>
+  [/Seq no More: Better Strategies for Parallel Haskell/]
+  (https://simonmar.github.io/bib/papers/strategies.pdf)
 
 The major differences in the API are:
 
- * The addition of Sequential strategies ("Control.Seq") as
+ * The addition of sequential strategies ("Control.Seq") as
    a composable means for specifying sequential evaluation.
 
  * Changes to the naming scheme: 'rwhnf' renamed to 'rseq',
    'seqList' renamed to 'evalList', 'seqPair' renamed to
-   'evalTuple2',
+   'evalTuple2'.
 
 The naming scheme is now as follows:
 

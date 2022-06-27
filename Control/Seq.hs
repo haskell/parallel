@@ -14,7 +14,7 @@
 -- Sequential strategies provide ways to compositionally specify
 -- the degree of evaluation of a data type between the extremes of
 -- no evaluation and full evaluation.
--- Sequential strategies may be viewed as complimentary to the parallel
+-- Sequential strategies may be viewed as complementary to the parallel
 -- ones (see module "Control.Parallel.Strategies").
 --
 
@@ -94,7 +94,7 @@ withStrategy = flip using
 -- --------------------------------------------------------------------------
 -- Basic sequential strategies
 
--- | 'r0' performs *no* evaluation.
+-- | 'r0' performs /no/ evaluation.
 r0 :: Strategy a
 r0 _ = ()
 
