@@ -770,34 +770,31 @@ allowing strategies only as second arguments to @$|@ and @$||@.
 -- | Sequential function application. The argument is evaluated using
 -- the given strategy before it is given to the function.
 ($|) :: (a -> b) -> Strategy a -> a -> b
-f $| s  = \ x -> let z = x `using` s in z `pseq` f z
+f $| s  = \x -> runEval (f <$> s x)
 
 -- | Parallel function application. The argument is evaluated using
 -- the given strategy, in parallel with the function application.
 ($||) :: (a -> b) -> Strategy a -> a -> b
-f $|| s = \ x -> let z = x `using` s in z `par` f z
+f $|| s = \x -> runEval (f <$> rparWith s x)
 
 -- | Sequential function composition. The result of
 -- the second function is evaluated using the given strategy,
 -- and then given to the first function.
 (.|) :: (b -> c) -> Strategy b -> (a -> b) -> (a -> c)
-(.|) f s g = \ x -> let z = g x `using` s in
-                    z `pseq` f z
+(.|) f s g = \x -> runEval (f <$> s (g x))
 
 -- | Parallel function composition. The result of the second
 -- function is evaluated using the given strategy,
 -- in parallel with the application of the first function.
 (.||) :: (b -> c) -> Strategy b -> (a -> b) -> (a -> c)
-(.||) f s g = \ x -> let z = g x `using` s in
-                    z `par` f z
+(.||) f s g = \x -> runEval (f <$> rparWith s (g x))
 
 -- | Sequential inverse function composition,
 -- for those who read their programs from left to right.
 -- The result of the first function is evaluated using the
 -- given strategy, and then given to the second function.
 (-|) :: (a -> b) -> Strategy b -> (b -> c) -> (a -> c)
-(-|) f s g = \ x -> let z = f x `using` s in
-                    z `pseq` g z
+(-|) f s g = \x -> runEval (g <$> s (f x))
 
 -- | Parallel inverse function composition,
 -- for those who read their programs from left to right.
@@ -805,8 +802,7 @@ f $|| s = \ x -> let z = x `using` s in z `par` f z
 -- given strategy, in parallel with the application of the
 -- second function.
 (-||) :: (a -> b) -> Strategy b -> (b -> c) -> (a -> c)
-(-||) f s g = \ x -> let z = f x `using` s in
-                    z `par` g z
+(-||) f s g = \x -> runEval (g <$> rparWith s (f x))
 
 -- -----------------------------------------------------------------------------
 -- Old/deprecated stuff
