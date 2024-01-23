@@ -12,24 +12,14 @@ category:       Control, Parallelism
 build-type:     Simple
 
 tested-with:
-  GHC == 9.8.0
-  GHC == 9.6.3
-  GHC == 9.4.7
+  GHC == 9.8.1
+  GHC == 9.6.4
+  GHC == 9.4.8
   GHC == 9.2.8
   GHC == 9.0.2
   GHC == 8.10.7
   GHC == 8.8.4
   GHC == 8.6.5
-  GHC == 8.4.4
-  GHC == 8.2.2
-  GHC == 8.0.2
-  GHC == 7.10.3
-  -- Drop these old GHCs from CI:
-  -- GHC == 7.8.4
-  -- GHC == 7.6.3
-  -- GHC == 7.4.2
-  -- GHC == 7.2.2
-  -- GHC == 7.0.4
 
 description:
     This package provides a library for parallel programming.
@@ -68,11 +58,24 @@ library
         containers >= 0.4 && < 0.8,
         deepseq    >= 1.1 && < 1.6
 
-    ghc-options: -Wall
-
-    if impl(ghc >= 6.11)
+    ghc-options:
+        -Wall
         -- To improve parallel performance:
-        ghc-options: -feager-blackholing
+        -feager-blackholing
 
     if impl(ghc >= 7.2.1)
         build-depends: ghc-prim
+
+test-suite tests
+    default-language: Haskell2010
+    type: exitcode-stdio-1.0
+    hs-source-dirs: tests
+    main-is: Main.hs
+    other-modules:
+        Par
+        Seq
+        Util
+
+    build-depends: array, base, containers, nothunks, parallel, tasty, tasty-hunit
+
+    ghc-options: -Wall -threaded

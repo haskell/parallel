@@ -164,6 +164,8 @@ seqArrayBounds :: Ix i => Strategy i -> Strategy (Array i a)
 seqArrayBounds strat = seqTuple2 strat strat . Data.Array.bounds
 
 -- | Evaluate the keys and values of a map according to the given strategies.
+--
+-- Note: A 'Map' is strict in its keys, so the keys will always be at least in WHNF.
 seqMap :: Strategy k -> Strategy v -> Strategy (Map k v)
 seqMap stratK stratV = seqList (seqTuple2 stratK stratV) . Data.Map.toList
 
