@@ -12,9 +12,9 @@ category:       Control, Parallelism
 build-type:     Simple
 
 tested-with:
-  GHC == 9.8.0
-  GHC == 9.6.3
-  GHC == 9.4.7
+  GHC == 9.8.1
+  GHC == 9.6.4
+  GHC == 9.4.8
   GHC == 9.2.8
   GHC == 9.0.2
   GHC == 8.10.7
@@ -24,12 +24,11 @@ tested-with:
   GHC == 8.2.2
   GHC == 8.0.2
   GHC == 7.10.3
-  -- Drop these old GHCs from CI:
-  -- GHC == 7.8.4
-  -- GHC == 7.6.3
-  -- GHC == 7.4.2
-  -- GHC == 7.2.2
-  -- GHC == 7.0.4
+  GHC == 7.8.4
+  GHC == 7.6.3
+  GHC == 7.4.2
+  GHC == 7.2.2
+  GHC == 7.0.4
 
 description:
     This package provides a library for parallel programming.
