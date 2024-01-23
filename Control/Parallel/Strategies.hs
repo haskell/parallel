@@ -216,11 +216,11 @@ newtype Eval a = Eval {unEval_ :: IO a}
 
 -- | Run the evaluation.
 runEval :: Eval a -> a
-#  if MIN_VERSION_base(4,4,0)
+#if MIN_VERSION_base(4,4,0)
 runEval = unsafeDupablePerformIO . unEval_
-#  else
+#else
 runEval = unsafePerformIO . unEval_
-#  endif
+#endif
 
 -- | Run the evaluation in the 'IO' monad. This allows sequencing of
 -- evaluations relative to 'IO' actions.
@@ -530,6 +530,8 @@ evalTraversable = traverse
 {-# INLINE evalTraversable #-}
 
 -- | Like 'evalTraversable', but evaluates all elements in parallel.
+--
+-- > parTraversable = evalTraversable . rparWith
 parTraversable :: Traversable t => Strategy a -> Strategy (t a)
 parTraversable strat = evalTraversable (rparWith strat)
 {-# INLINE parTraversable #-}
@@ -549,6 +551,8 @@ evalList = evalTraversable
 
 -- | Evaluate each element of a list in parallel according to given strategy.
 --  Equivalent to 'parTraversable' at the list type.
+--
+-- > parList = evalList . rparWith
 parList :: Strategy a -> Strategy [a]
 parList = parTraversable
 -- Alternative definition via evalList:
@@ -652,7 +656,7 @@ evalBufferWHNF n0 xs0 = return (ret xs0 (start n0 xs0))
 -- > evalBuffer n r0 == evalBuffer n rseq
 --
 evalBuffer :: Int -> Strategy a -> Strategy [a]
-evalBuffer n strat =  evalBufferWHNF n . map (withStrategy strat)
+evalBuffer n strat = evalBufferWHNF n . map (withStrategy strat)
 
 -- Like evalBufferWHNF, but sparks the list elements when pushing them
 -- into the buffer.
