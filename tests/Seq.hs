@@ -1,7 +1,10 @@
-{-# LANGUAGE ExistentialQuantification, RankNTypes #-}
+{-# LANGUAGE CPP, ExistentialQuantification, RankNTypes #-}
 
 module Seq (tests) where
 
+#if !MIN_VERSION_base(4,18,0)
+import Control.Applicative (liftA2)
+#endif
 import qualified Data.Array as A
 import Data.Foldable (traverse_)
 import qualified Data.Map as Map

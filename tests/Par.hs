@@ -1,7 +1,10 @@
-{-# LANGUAGE ExistentialQuantification, RankNTypes #-}
+{-# LANGUAGE CPP, ExistentialQuantification, RankNTypes #-}
 
 module Par (tests) where
 
+#if !MIN_VERSION_base(4,18,0)
+import Control.Applicative (liftA2)
+#endif
 import Control.Concurrent (threadDelay)
 import Data.Coerce (coerce)
 import Data.Foldable (traverse_)
