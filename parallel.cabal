@@ -1,7 +1,7 @@
 cabal-version:  >=1.10
 name:           parallel
 version:        3.2.2.0
-x-revision:     7
+x-revision:     8
 -- NOTE: Don't forget to update ./changelog.md
 license:        BSD3
 license-file:   LICENSE
@@ -12,9 +12,10 @@ category:       Control, Parallelism
 build-type:     Simple
 
 tested-with:
-  GHC == 9.8.0
-  GHC == 9.6.3
-  GHC == 9.4.7
+  GHC == 9.10.0
+  GHC == 9.8.2
+  GHC == 9.6.4
+  GHC == 9.4.8
   GHC == 9.2.8
   GHC == 9.0.2
   GHC == 8.10.7
@@ -64,7 +65,7 @@ library
 
     build-depends:
         array      >= 0.3 && < 0.6,
-        base       >= 4.3 && < 4.20,
+        base       >= 4.3 && < 4.21,
         containers >= 0.4 && < 0.8,
         deepseq    >= 1.1 && < 1.6
 
