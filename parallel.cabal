@@ -1,7 +1,7 @@
 cabal-version:  >=1.10
 name:           parallel
 version:        3.2.2.0
-x-revision:     8
+x-revision:     9
 -- NOTE: Don't forget to update ./changelog.md
 license:        BSD3
 license-file:   LICENSE
