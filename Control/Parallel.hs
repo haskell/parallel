@@ -38,7 +38,7 @@ infixr 0 `par`, `pseq`
 -- argument in parallel with the second.  Returns the value of the
 -- second argument.
 --
--- The result of @a ``par`` b@ is always  @b@, regardless of wether
+-- The result of @a ``par`` b@ is always  @b@, regardless of whether
 -- @a@ evaluates to a bottom, so for example @par undefined x = x@.
 --
 -- @par@ is generally used when the value of @a@ is likely to be
