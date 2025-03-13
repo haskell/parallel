@@ -27,7 +27,7 @@ module Control.Parallel (
     ) where
 
 #ifdef __GLASGOW_HASKELL__
-import qualified GHC.Conc       ( par, pseq )
+import qualified GHC.Conc (par, pseq)
 
 infixr 0 `par`, `pseq`
 #endif
@@ -38,7 +38,8 @@ infixr 0 `par`, `pseq`
 -- argument in parallel with the second.  Returns the value of the
 -- second argument.
 --
--- @a ``par`` b@ is exactly equivalent semantically to @b@.
+-- The result of @a ``par`` b@ is always  @b@, regardless of wether
+-- @a@ evaluates to a bottom, so for example @par undefined x = x@.
 --
 -- @par@ is generally used when the value of @a@ is likely to be
 -- required later, but not immediately.  Also it is a good idea to
@@ -47,9 +48,8 @@ infixr 0 `par`, `pseq`
 -- running it in parallel.
 --
 -- Note that actual parallelism is only supported by certain
--- implementations (GHC with the @-threaded@ option, and GPH, for
--- now).  On other implementations, @par a b = b@.
---
+-- implementations (GHC with the @-threaded@ option, for now).
+-- On other implementations, @par a b = b@.
 par :: a -> b -> b
 #ifdef __GLASGOW_HASKELL__
 par = GHC.Conc.par
@@ -58,8 +58,13 @@ par = GHC.Conc.par
 par a b = b
 #endif
 
--- | Semantically identical to 'seq', but with a subtle operational
--- difference: 'seq' is strict in both its arguments, so the compiler
+-- | Like 'seq' but ensures that the first argument is evaluated before returning.
+--
+-- @a ``pseq`` b@ evaluates @a@ to weak head normal form (WHNF)
+-- before returning @b@.
+--
+-- This is similar to 'seq', but with a subtle difference:
+-- 'seq' is strict in both its arguments, so the compiler
 -- may, for example, rearrange @a ``seq`` b@ into @b ``seq`` a ``seq`` b@.
 -- This is normally no problem when using 'seq' to express strictness,
 -- but it can be a problem when annotating code for parallelism,
@@ -71,7 +76,6 @@ par a b = b
 -- strict in its first argument (as far as the compiler is concerned),
 -- which restricts the transformations that the compiler can do, and
 -- ensures that the user can retain control of the evaluation order.
---
 pseq :: a -> b -> b
 #ifdef __GLASGOW_HASKELL__
 pseq = GHC.Conc.pseq
