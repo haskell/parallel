@@ -359,19 +359,30 @@ withStrategyIO :: Strategy a -> a -> IO a
 withStrategyIO = flip usingIO
 
 -- | Compose two strategies sequentially.
--- This is the analogue to function composition on strategies.
---
--- For any strategies @strat1@, @strat2@, and @strat3@,
---
--- > (strat1 `dot` strat2) `dot` strat3 == strat1 `dot` (strat2 `dot` strat3)
--- > strat1 `dot` strat1 = strat1
--- > strat1 `dot` r0 == strat1
 --
 -- > strat2 `dot` strat1 == strat2 . withStrategy strat1
 --
+-- 'dot' is associative:
+--
+-- > (strat1 `dot` strat2) `dot` strat3 == strat1 `dot` (strat2 `dot` strat3)
+--
+-- 'r0' and 'rseq' are one-sided identities of 'dot':
+--
+-- > strat `dot` r0 == strat
+-- > strat `dot` rseq == strat
+--
+-- Furthermore, since strategies should only force and spark computations
+-- (that is, they don't actually change any values),
+--
+-- > strat `dot` strat == strat
+--
+-- Perhaps unexpectedly, @r0 `dot` strat == r0@.
+-- 'Control.Monad.<=<' has a more intuitive behaviour (@r0 <=< strat == strat@).
 dot :: Strategy a -> Strategy a -> Strategy a
 strat2 `dot` strat1 = strat2 . runEval . strat1
 
+-- Note [dot proofs]
+-- ~~~~~~~~~~~~~~~~~
 -- Proof of strat2 `dot` strat1 == strat2 . withStrategy strat1
 --
 --    strat2 . withStrategy strat1
@@ -380,17 +391,14 @@ strat2 `dot` strat1 = strat2 . runEval . strat1
 -- == \x -> strat2 (runEval (strat1 x))
 -- == \x -> (strat2 . runEval . strat1) x
 -- == strat2 `dot` strat1
-
--- One might be tempted to think that 'dot' is equivalent to '(<=<)',
--- the right-to-left Kleisli composition in the Eval monad, because
--- '(<=<)' can take the type @Strategy a -> Strategy a -> Strategy a@
--- and intuitively does what 'dot' does: First apply the strategy to the
--- right then the one to the left. However, there is a subtle difference
--- in strictness, witnessed by the following example:
 --
--- > (r0 `dot` rseq) undefined == Done undefined
--- > (r0 <=< rseq) undefined == undefined
+-- Proof of associativity
 --
+--    (strat1 `dot` strat2) `dot` strat3
+-- == (strat1 . runEval . strat2) . runEval . strat3
+-- == strat1 . runEval . strat2 . runEval . strat3
+-- == strat1 . runEval . (strat2 . runEval . strat3)
+-- == strat1 `dot` (strat2 `dot` strat3)
 
 -- | Inject a sequential strategy (i.e., coerce a sequential strategy
 -- to a general strategy).
