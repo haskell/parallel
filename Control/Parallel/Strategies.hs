@@ -358,7 +358,7 @@ x `usingIO` strat = runEvalIO (strat x)
 withStrategyIO :: Strategy a -> a -> IO a
 withStrategyIO = flip usingIO
 
--- | Compose two strategies sequentially.
+-- | Compose two strategies.
 --
 -- > strat2 `dot` strat1 == strat2 . withStrategy strat1
 --
@@ -370,14 +370,7 @@ withStrategyIO = flip usingIO
 --
 -- > strat `dot` r0 == strat
 -- > strat `dot` rseq == strat
---
--- Furthermore, since strategies should only force and spark computations
--- (that is, they don't actually change any values),
---
--- > strat `dot` strat == strat
---
--- Perhaps unexpectedly, @r0 `dot` strat == r0@.
--- 'Control.Monad.<=<' has a more intuitive behaviour (@r0 <=< strat == strat@).
+{-# DEPRECATED dot "'dot' is an unintuitive composition operator. Use 'Control.Monad.<=<` instead." #-}
 dot :: Strategy a -> Strategy a -> Strategy a
 strat2 `dot` strat1 = strat2 . runEval . strat1
 
