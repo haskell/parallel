@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns, CPP, MagicHash, UnboxedTuples #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE RecursiveDo #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Control.Parallel.Strategies
@@ -599,13 +600,36 @@ parListNth n strat = evalListNth n (rparWith strat)
 -- 'parList'
 --
 parListChunk :: Int -> Strategy a -> Strategy [a]
-parListChunk n strat xs
-  | n <= 1    = parList strat xs
-  | otherwise = concat `fmap` parList (evalList strat) (chunk n xs)
+parListChunk = parListChunk'
 
-chunk :: Int -> [a] -> [[a]]
-chunk _ [] = []
-chunk n xs = as : chunk n bs where (as,bs) = splitAt n xs
+parListChunk' :: Int -> (a -> Eval b) -> [a] -> Eval [b]
+parListChunk' n strat
+  | n <= 1 = traverse strat
+
+-- parListChunk n strat xs =
+--    concat `fmap` 'parList' ('evalList' strat) (chunk n xs)
+-- but we avoid building intermediate lists.
+parListChunk' n0 strat = go n0
+  where
+    go !_n [] = pure []
+    go n as = mdo
+      -- Calculate the first chunk in parallel, passing it the result
+      -- of calculating the rest
+      bs <- rpar $ runEval $ evalChunk strat more n as
+
+      -- Calculate the rest
+      more <- go n (drop n as)
+      return bs
+
+-- | @evalChunk strat end n as@ uses @strat@ to evaluate the first @n@
+-- elements of @as@ (ignoring the rest) and appends @end@ to the result.
+evalChunk :: (a -> Eval b) -> [b] -> Int -> [a] -> Eval [b]
+evalChunk strat = \end ->
+  let
+    go !_n [] = pure end
+    go 0 _ = pure end
+    go n (a:as) = (:) <$> strat a <*> go (n - 1) as
+  in go
 
 -- --------------------------------------------------------------------------
 -- Convenience
