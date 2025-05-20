@@ -593,37 +593,29 @@ parListNth n strat = evalListNth n (rparWith strat)
 -- | Divides a list into chunks, and applies the strategy
 -- @'evalList' strat@ to each chunk in parallel.
 --
--- It is expected that this function will be replaced by a more
--- generic clustering infrastructure in the future.
---
 -- If the chunk size is 1 or less, 'parListChunk' is equivalent to
 -- 'parList'
 --
+-- This function may be replaced by a more
+-- generic clustering infrastructure in the future.
 parListChunk :: Int -> Strategy a -> Strategy [a]
-parListChunk = parListChunk'
-
-parListChunk' :: Int -> (a -> Eval b) -> [a] -> Eval [b]
-parListChunk' n strat
-  | n <= 1 = traverse strat
-
--- parListChunk n strat xs =
---    concat `fmap` 'parList' ('evalList' strat) (chunk n xs)
--- but we avoid building intermediate lists.
-parListChunk' n0 strat = go n0
+parListChunk n strat
+  | n <= 1 = parList strat
+  | otherwise = go
   where
-    go !_n [] = pure []
-    go n as = mdo
+    go [] = pure []
+    go as = mdo
       -- Calculate the first chunk in parallel, passing it the result
       -- of calculating the rest
       bs <- rpar $ runEval $ evalChunk strat more n as
 
       -- Calculate the rest
-      more <- go n (drop n as)
+      more <- go (drop n as)
       return bs
 
 -- | @evalChunk strat end n as@ uses @strat@ to evaluate the first @n@
 -- elements of @as@ (ignoring the rest) and appends @end@ to the result.
-evalChunk :: (a -> Eval b) -> [b] -> Int -> [a] -> Eval [b]
+evalChunk :: Strategy a -> [a] -> Int -> Strategy [a]
 evalChunk strat = \end ->
   let
     go !_n [] = pure end
