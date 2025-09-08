@@ -540,7 +540,10 @@ parTraversable strat = evalTraversable (rparWith strat)
 -- Strategies for lists
 
 -- | Evaluate each element of a list according to the given strategy.
---  Equivalent to 'evalTraversable' at the list type.
+-- Equivalent to 'evalTraversable' at the list type.
+--
+-- __Warning:__ This strategy evaluates the spine of the list
+-- and thus does not work on infinite lists.
 evalList :: Strategy a -> Strategy [a]
 evalList = evalTraversable
 -- Alternative explicitly recursive definition:
@@ -550,14 +553,17 @@ evalList = evalTraversable
 --                         return (x':xs')
 
 -- | Evaluate each element of a list in parallel according to given strategy.
---  Equivalent to 'parTraversable' at the list type.
+-- Equivalent to 'parTraversable' at the list type.
+--
+-- __Warning:__ This strategy evaluates the spine of the list
+-- and thus does not work on infinite lists.
 parList :: Strategy a -> Strategy [a]
 parList = parTraversable
 -- Alternative definition via evalList:
 -- parList strat = evalList (rparWith strat)
 
 -- | @'evaListSplitAt' n stratPref stratSuff@ evaluates the prefix
--- (of length @n@) of a list according to @stratPref@ and its the suffix
+-- (of length @n@) of a list according to @stratPref@ and the suffix
 -- according to @stratSuff@.
 evalListSplitAt :: Int -> Strategy [a] -> Strategy [a] -> Strategy [a]
 evalListSplitAt n stratPref stratSuff xs
@@ -598,6 +604,9 @@ parListNth n strat = evalListNth n (rparWith strat)
 --
 -- This function may be replaced by a more
 -- generic clustering infrastructure in the future.
+--
+-- __Warning:__ This strategy evaluates the spine of the list
+-- and thus does not work on infinite lists.
 parListChunk :: Int -> Strategy a -> Strategy [a]
 parListChunk n strat
   | n <= 1 = parList strat
@@ -630,6 +639,8 @@ evalChunk strat = \end ->
 --
 -- > parMap strat f = withStrategy (parList strat) . map f
 --
+-- __Warning:__ This function evaluates the spine of the list
+-- and thus does not work on infinite lists.
 parMap :: Strategy b -> (a -> b) -> [a] -> [b]
 parMap strat f = (`using` parList strat) . map f
 
