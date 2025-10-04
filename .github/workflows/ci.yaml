@@ -34,15 +34,20 @@ jobs:
   mhs:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v5
+        with:
+          path: parallel
       - name: Checkout MicroHs repository
         uses: actions/checkout@v5
         with:
           repository: augustss/MicroHs
-          ref: stable-7
+          path: mhs
       - name: Install MicroHs
-        run: make minstall
-      - uses: actions/checkout@v5
+        run: |
+          cd mhs
+          make minstall
       - name: Build
         run: |
+          cd parallel
           PATH="$HOME/.mcabal/bin:$PATH"
           mcabal -r build
