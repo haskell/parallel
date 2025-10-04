@@ -146,7 +146,7 @@ module Control.Parallel.Strategies (
     NFData
   ) where
 
-#if defined(__MHS) || !MIN_VERSION_base(4,8,0)
+#if defined(__MHS__) || !MIN_VERSION_base(4,8,0)
 import Data.Traversable
 #endif
 #if !MIN_VERSION_base(4,8,0)
