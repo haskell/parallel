@@ -28,9 +28,9 @@ module Control.Parallel (
 
 #ifdef __GLASGOW_HASKELL__
 import qualified GHC.Conc (par, pseq)
+#endif
 
 infixr 0 `par`, `pseq`
-#endif
 
 -- Maybe parIO and the like could be added here later.
 
@@ -54,7 +54,7 @@ par :: a -> b -> b
 #ifdef __GLASGOW_HASKELL__
 par = GHC.Conc.par
 #else
--- For now, Hugs does not support par properly.
+-- For now, Hugs and MicroHs don't support par properly.
 par a b = b
 #endif
 
