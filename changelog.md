@@ -1,6 +1,6 @@
 # Changelog for [`parallel` package](http://hackage.haskell.org/package/parallel)
 
-## 3.3.0.0  *upcoming*
+## 3.3.0.0  *Oct 2025*
 
 * Bump dependency bounds
 * Support MicroHs ([#81](https://github.com/haskell/parallel/pull/81))
