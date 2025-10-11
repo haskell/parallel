@@ -10,13 +10,14 @@ on:
 
 jobs:
   build:
+    name: ghc-${{ matrix.ghc }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         ghc: ['8.0', '8.2', '8.4', '8.6', '8.8', '8.10', '9.0', '9.2', '9.4', '9.6', '9.8', '9.10', '9.12']
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: haskell-actions/setup@v2
         id: setup-haskell
         with:
@@ -29,3 +30,24 @@ jobs:
           key: ${{ runner.os }}-${{ matrix.ghc }}
       - name: Build
         run: cabal build
+
+  mhs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: parallel
+      - name: Checkout MicroHs repository
+        uses: actions/checkout@v5
+        with:
+          repository: augustss/MicroHs
+          path: mhs
+      - name: Install MicroHs
+        run: |
+          cd mhs
+          make minstall
+          echo "$HOME/.mcabal/bin" >> $GITHUB_PATH
+      - name: Build
+        run: |
+          cd parallel
+          mcabal -r build

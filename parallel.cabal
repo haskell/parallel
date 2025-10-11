@@ -25,6 +25,7 @@ tested-with:
   GHC == 8.4.4
   GHC == 8.2.2
   GHC == 8.0.2
+  MHS
 
 description:
     This package provides a library for parallel programming.
@@ -68,6 +69,3 @@ library
     if impl(ghc >= 6.11)
         -- To improve parallel performance:
         ghc-options: -feager-blackholing
-
-    if impl(ghc >= 7.2.1)
-        build-depends: ghc-prim

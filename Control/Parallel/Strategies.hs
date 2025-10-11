@@ -146,15 +146,17 @@ module Control.Parallel.Strategies (
     NFData
   ) where
 
-#if !MIN_VERSION_base(4,8,0)
+#if defined(__MHS__) || !MIN_VERSION_base(4,8,0)
 import Data.Traversable
+#endif
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative
 #endif
 import Control.Parallel
 import Control.DeepSeq (NFData(rnf))
 import Control.Monad.Fix (MonadFix (..))
 
-#if MIN_VERSION_base(4,4,0)
+#if defined(__GLASGOW_HASKELL__) && MIN_VERSION_base(4,4,0)
 import System.IO.Unsafe (unsafeDupablePerformIO)
 import Control.Exception (evaluate)
 #else
@@ -164,8 +166,10 @@ import Control.Monad
 
 import qualified Control.Seq
 
+#ifdef __GLASGOW_HASKELL__
 import GHC.Exts
 import GHC.IO (IO (..))
+#endif
 
 infixr 9 `dot`     -- same as (.)
 infixl 0 `using`   -- lowest precedence and associate to the left
@@ -280,7 +284,11 @@ instance Applicative Eval where
 
 instance Monad Eval where
   return = pure
+#  ifdef __GLASGOW_HASKELL__
   Done x >>= k = lazy (k x)   -- Note: pattern 'Done x' makes '>>=' strict
+#  else
+  Done x >>= k = k x
+#  endif
 
 instance MonadFix Eval where
   mfix f = let r = f (runEval r) in r
@@ -463,10 +471,14 @@ rdeepseq x = do rseq (rnf x); return x
 
 -- | 'rpar' sparks its argument (for evaluation in parallel).
 rpar :: Strategy a
+#ifdef __GLASGOW_HASKELL__
 #if __GLASGOW_HASKELL__ >= 702
-rpar  x = Eval $ IO $ \s -> spark# x s
+rpar x = Eval $ IO $ \s -> spark# x s
 #else
-rpar  x = case (par# x) of { _ -> Done x }
+rpar x = case (par# x) of _ -> Done x
+#endif
+#else
+rpar x = case par x () of () -> Done x
 #endif
 {-# INLINE rpar  #-}
 

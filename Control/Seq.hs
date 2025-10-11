@@ -59,7 +59,7 @@ module Control.Seq
        ) where
 
 import Control.DeepSeq (NFData, deepseq)
-#if MIN_VERSION_base(4,8,0)
+#if defined(__GLASGOW_HASKELL__) && MIN_VERSION_base(4,8,0)
 import Data.Foldable (toList)
 #else
 import Data.Foldable (Foldable, toList)
