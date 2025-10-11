@@ -46,8 +46,8 @@ jobs:
         run: |
           cd mhs
           make minstall
+          echo "$HOME/.mcabal/bin" >> $GITHUB_PATH
       - name: Build
         run: |
           cd parallel
-          PATH="$HOME/.mcabal/bin:$PATH"
           mcabal -r build
