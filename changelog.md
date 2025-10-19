@@ -1,10 +1,15 @@
 # Changelog for [`parallel` package](http://hackage.haskell.org/package/parallel)
 
-## 3.3.0.0  *upcoming*
+## 3.3.0.0  *Oct 2025*
 
 * Bump dependency bounds
+* Support MicroHs ([#81](https://github.com/haskell/parallel/pull/81))
+* Make rolling buffer strategies compositional ([#77](https://github.com/haskell/parallel/pull/77))
+* Deprecate `dot` ([#75](https://github.com/haskell/parallel/pull/75))
 * Make strategic function application operators handle strategies correctly ([#61](https://github.com/haskell/parallel/pull/61))
 * Add `parFmap` ([#53](https://github.com/haskell/parallel/pull/53))
+* Make `parListChunk` more efficient ([#45](https://github.com/haskell/parallel/issues/45))
+* Update documentation
 
 ## 3.2.2.0  *Jul 2018*
 
