@@ -1,44 +1,43 @@
-cabal-version:  >=1.10
+cabal-version:  3.0
 name:           parallel
 version:        3.3.0.0
 -- NOTE: Don't forget to update ./changelog.md
-license:        BSD3
+license:        BSD-3-Clause
 license-file:   LICENSE
 maintainer:     libraries@haskell.org
 bug-reports:    https://github.com/haskell/parallel/issues
 synopsis:       Parallel programming library
 category:       Control, Parallelism
-build-type:     Simple
 
 tested-with:
-  GHC == 9.12.2
-  GHC == 9.10.1
-  GHC == 9.8.4
-  GHC == 9.6.7
-  GHC == 9.4.8
-  GHC == 9.2.8
-  GHC == 9.0.2
-  GHC == 8.10.7
-  GHC == 8.8.4
-  GHC == 8.6.5
-  GHC == 8.4.4
-  GHC == 8.2.2
-  GHC == 8.0.2
-  MHS
+    GHC == 9.14.1
+    GHC == 9.12.2
+    GHC == 9.10.1
+    GHC == 9.8.4
+    GHC == 9.6.7
+    GHC == 9.4.8
+    GHC == 9.2.8
+    GHC == 9.0.2
+    GHC == 8.10.7
+    GHC == 8.8.4
+    GHC == 8.6.5
+    GHC == 8.4.4
+    GHC == 8.2.2
+    GHC == 8.0.2
+    MHS
 
 description:
     This package provides a library for parallel programming.
-    .
+
     For documentation, start from the "Control.Parallel.Strategies"
     module below.
-    .
-    For more tutorial documentation, see the book <https://simonmar.github.io/pages/pcph.html Parallel and Concurrent Programming in Haskell>.
-    .
+
+    For more tutorial documentation, see the book [Parallel and Concurrent Programming in Haskell](https://simonmar.github.io/pages/pcph.html).
+
     To understand the principles behind the library, see
-    <https://simonmar.github.io/bib/papers/strategies.pdf Seq no more: Better Strategies for Parallel Haskell>.
+    [Seq no more: Better Strategies for Parallel Haskell](https://simonmar.github.io/bib/papers/strategies.pdf).
 
-
-extra-source-files: changelog.md
+extra-doc-files: changelog.md
 
 source-repository head
     type:     git
@@ -59,12 +58,8 @@ library
 
     build-depends:
         array      >= 0.3 && < 0.6,
-        base       >= 4.3 && < 4.22,
+        base       >= 4.3 && < 4.23,
         containers >= 0.4 && < 0.9,
         deepseq    >= 1.1 && < 1.6
 
-    ghc-options: -Wall
-
-    if impl(ghc >= 6.11)
-        -- To improve parallel performance:
-        ghc-options: -feager-blackholing
+    ghc-options: -Wall -feager-blackholing
